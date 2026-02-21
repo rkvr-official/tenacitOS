@@ -23,6 +23,30 @@ A real-time dashboard and control center for [OpenClaw](https://openclaw.ai) AI 
 
 ---
 
+## Screenshots
+
+**Dashboard** — activity overview, agent status, and weather widget
+
+![Dashboard](./docs/screenshots/dashboard.jpg)
+
+**Session History** — all OpenClaw sessions with token usage and context tracking
+
+![Sessions](./docs/screenshots/sessions.jpg)
+
+**Costs & Analytics** — daily cost trends and breakdown per agent
+
+![Costs](./docs/screenshots/costs.jpg)
+
+**System Monitor** — real-time CPU, RAM, Disk, and Network metrics
+
+![System Monitor](./docs/screenshots/system.jpg)
+
+**Office 3D** — interactive 3D office with one voxel avatar per agent (React Three Fiber)
+
+![Office 3D](./docs/screenshots/office3d.jpg)
+
+---
+
 ## Requirements
 
 - **Node.js** 18+ (tested with v22)
