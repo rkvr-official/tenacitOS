@@ -106,6 +106,13 @@ export default function CostsPage() {
   const totalPages = Math.max(1, Math.ceil(pricingRows.length / pageSize));
   const start = (pricingPage - 1) * pageSize;
   const pagedPricing = pricingRows.slice(start, start + pageSize);
+  const bestPerf = pricingRows[0];
+  const bySpeed = [...pricingRows].sort((a,b)=>b.ranking.speed-a.ranking.speed);
+  const byThinking = [...pricingRows].sort((a,b)=>{
+    const score=(x:string)=>x==="high"?3:x==="medium"?2:1;
+    return score(b.ranking.thinking)-score(a.ranking.thinking);
+  });
+  const cheapest = [...pricingRows].sort((a,b)=>((a.inputPerM||999)+(a.outputPerM||999))-((b.inputPerM||999)+(b.outputPerM||999)))[0];
 
   return (
     <div className="space-y-6">
@@ -260,108 +267,57 @@ export default function CostsPage() {
       </div>
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Daily Trend */}
-        <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
-          <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
-            Daily Cost Trend
-          </h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={costData.daily}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
-              <YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "var(--card-elevated)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "8px",
-                }}
-              />
-              <Legend />
-              <Line type="monotone" dataKey="cost" stroke="var(--accent)" strokeWidth={2} name="Cost ($)" />
-            </LineChart>
-          </ResponsiveContainer>
+      {deployment === "local" ? (
+        <div className="grid grid-cols-1 gap-6">
+          <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+            <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
+              Local Token Usage (Daily)
+            </h3>
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={costData.daily}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
+                <YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
+                <Tooltip contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} />
+                <Legend />
+                <Bar dataKey="input" stackId="a" fill="#60A5FA" name="Input Tokens" />
+                <Bar dataKey="output" stackId="a" fill="#F59E0B" name="Output Tokens" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-
-        {/* Cost by Agent */}
-        <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
-          <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
-            Cost by Agent
-          </h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={costData.byAgent}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="agent" stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
-              <YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "var(--card-elevated)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "8px",
-                }}
-              />
-              <Bar dataKey="cost" fill="var(--accent)" name="Cost ($)" />
-            </BarChart>
-          </ResponsiveContainer>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+            <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Daily Cost Trend</h3>
+            <ResponsiveContainer width="100%" height={300}><LineChart data={costData.daily}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} /><Legend /><Line type="monotone" dataKey="cost" stroke="var(--accent)" strokeWidth={2} name="Cost ($)" /></LineChart></ResponsiveContainer>
+          </div>
+          <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+            <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Cost by Agent</h3>
+            <ResponsiveContainer width="100%" height={300}><BarChart data={costData.byAgent}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="agent" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} /><Bar dataKey="cost" fill="var(--accent)" name="Cost ($)" /></BarChart></ResponsiveContainer>
+          </div>
+          <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+            <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Cost by Model</h3>
+            <ResponsiveContainer width="100%" height={300}><RePieChart><Pie data={costData.byModel} dataKey="cost" nameKey="model" cx="50%" cy="50%" outerRadius={100} label={(entry) => `${entry.model}: $${entry.cost.toFixed(2)}`}>{costData.byModel.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}</Pie><Tooltip contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} /></RePieChart></ResponsiveContainer>
+          </div>
+          <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+            <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Token Usage (Daily)</h3>
+            <ResponsiveContainer width="100%" height={300}><BarChart data={costData.daily}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} /><Legend /><Bar dataKey="input" stackId="a" fill="#60A5FA" name="Input Tokens" /><Bar dataKey="output" stackId="a" fill="#F59E0B" name="Output Tokens" /></BarChart></ResponsiveContainer>
+          </div>
         </div>
+      )}
 
-        {/* Cost by Model */}
-        <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
-          <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
-            Cost by Model
-          </h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <RePieChart>
-              <Pie
-                data={costData.byModel}
-                dataKey="cost"
-                nameKey="model"
-                cx="50%"
-                cy="50%"
-                outerRadius={100}
-                label={(entry) => `${entry.model}: $${entry.cost.toFixed(2)}`}
-              >
-                {costData.byModel.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "var(--card-elevated)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "8px",
-                }}
-              />
-            </RePieChart>
-          </ResponsiveContainer>
+      {deployment === "cloud" && (
+        <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+          <h3 className="text-md font-semibold" style={{ color: "var(--text-primary)" }}>Cloud model recommendations</h3>
+          <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 6 }}>
+            Best value: <b>{bestPerf?.model || "-"}</b> · Fastest: <b>{bySpeed[0]?.model || "-"}</b> · Best thinking: <b>{byThinking[0]?.model || "-"}</b> · Cheapest input+output: <b>{cheapest?.model || "-"}</b>
+          </div>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 4 }}>
+            Use value/cheapest for routine tasks, thinking models for planning/reasoning, and fastest for high-throughput workflows.
+          </div>
         </div>
-
-        {/* Token Usage */}
-        <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
-          <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
-            Token Usage (Daily)
-          </h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={costData.daily}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
-              <YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "var(--card-elevated)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "8px",
-                }}
-              />
-              <Legend />
-              <Bar dataKey="input" stackId="a" fill="#60A5FA" name="Input Tokens" />
-              <Bar dataKey="output" stackId="a" fill="#F59E0B" name="Output Tokens" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
+      )}
       {/* Model Pricing Table */}
       <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
         <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
