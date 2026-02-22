@@ -33,6 +33,15 @@ export function WeatherWidget() {
   useEffect(() => {
     let cancelled = false;
 
+    async function fetchWeather(pos: GeolocationPosition | null) {
+      const url = pos
+        ? `/api/weather?lat=${encodeURIComponent(pos.coords.latitude)}&lon=${encodeURIComponent(pos.coords.longitude)}`
+        : "/api/weather";
+      const d = await fetch(url, { cache: "no-store" }).then((r) => r.json());
+      if (cancelled) return;
+      setWeather(d);
+    }
+
     async function load() {
       try {
         // Prefer user geolocation (browser permission prompt). If denied, fall back to Madrid.
@@ -41,23 +50,25 @@ export function WeatherWidget() {
           navigator.geolocation.getCurrentPosition(
             (p) => resolve(p),
             () => resolve(null),
-            { enableHighAccuracy: false, timeout: 4000, maximumAge: 5 * 60 * 1000 }
+            { enableHighAccuracy: false, timeout: 8000, maximumAge: 5 * 60 * 1000 }
           );
         });
 
         if (!pos) setGeoBlocked(true);
+        else setGeoBlocked(false);
 
-        const url = pos
-          ? `/api/weather?lat=${encodeURIComponent(pos.coords.latitude)}&lon=${encodeURIComponent(pos.coords.longitude)}`
-          : "/api/weather";
-
-        const d = await fetch(url, { cache: "no-store" }).then((r) => r.json());
-        if (cancelled) return;
-        setWeather(d);
+        await fetchWeather(pos);
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
+
+    // If user accepts the permission prompt after first render,
+    // re-check on focus (common on mobile/webviews).
+    const onFocus = () => {
+      void load();
+    };
+    window.addEventListener("focus", onFocus);
 
     void load();
 
@@ -65,6 +76,7 @@ export function WeatherWidget() {
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", onFocus);
       clearInterval(timer);
     };
   }, []);
@@ -100,7 +112,7 @@ export function WeatherWidget() {
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "0.75rem" }}>
         {geoBlocked ? (
           <div style={{ position: "absolute", marginTop: "-0.25rem", fontSize: "0.7rem", color: "var(--text-muted)" }}>
-            Location blocked → showing Madrid. Enable location permissions to personalize.
+            Location blocked/failed → showing Madrid. Allow location + refocus the tab to retry.
           </div>
         ) : null}
         <div>

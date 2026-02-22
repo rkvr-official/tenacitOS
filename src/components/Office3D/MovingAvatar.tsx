@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { Text } from '@react-three/drei';
 import { Group, Vector3 } from 'three';
 import VoxelAvatar from './VoxelAvatar';
 import type { AgentConfig, AgentState } from './agentsConfig';
@@ -82,7 +83,8 @@ export default function MovingAvatar({
   // When working/thinking: stay seated at the desk.
   useEffect(() => {
     if (safeState.status === 'working' || safeState.status === 'thinking') {
-      setTargetPos(new Vector3(agent.position[0], 0.6, agent.position[2] + 0.9));
+      // Keep avatar near the chair position (avoid desk/table clipping)
+      setTargetPos(new Vector3(agent.position[0], 0.6, agent.position[2] + 1.8));
     }
   }, [agent.position[0], agent.position[2], safeState.status]);
 
@@ -96,9 +98,15 @@ export default function MovingAvatar({
 
       // Intentar encontrar una posición libre (máximo 20 intentos)
       do {
-        const x = Math.random() * (officeBounds.maxX - officeBounds.minX) + officeBounds.minX;
-        const z = Math.random() * (officeBounds.maxZ - officeBounds.minZ) + officeBounds.minZ;
-        newPos = new Vector3(x, 0.6, z);
+        // Wander near own desk (keeps agents close to their station)
+        const radius = 2.5;
+        const x = agent.position[0] + (Math.random() - 0.5) * radius * 2;
+        const z = agent.position[2] + (Math.random() - 0.5) * radius * 2;
+        newPos = new Vector3(
+          Math.max(officeBounds.minX, Math.min(officeBounds.maxX, x)),
+          0.6,
+          Math.max(officeBounds.minZ, Math.min(officeBounds.maxZ, z))
+        );
         attempts++;
       } while (!isPositionFree(newPos) && attempts < 20);
 
@@ -161,10 +169,15 @@ export default function MovingAvatar({
         groupRef.current.rotation.y = angle;
       }
     } else {
-      // Si hay colisión, buscar nuevo objetivo
-      const x = Math.random() * (officeBounds.maxX - officeBounds.minX) + officeBounds.minX;
-      const z = Math.random() * (officeBounds.maxZ - officeBounds.minZ) + officeBounds.minZ;
-      const newTarget = new Vector3(x, 0.6, z);
+      // Si hay colisión, buscar nuevo objetivo (near own desk)
+      const radius = 2.5;
+      const x = agent.position[0] + (Math.random() - 0.5) * radius * 2;
+      const z = agent.position[2] + (Math.random() - 0.5) * radius * 2;
+      const newTarget = new Vector3(
+        Math.max(officeBounds.minX, Math.min(officeBounds.maxX, x)),
+        0.6,
+        Math.max(officeBounds.minZ, Math.min(officeBounds.maxZ, z))
+      );
       if (isPositionFree(newTarget)) {
         setTargetPos(newTarget);
       }
@@ -180,6 +193,18 @@ export default function MovingAvatar({
         isThinking={safeState.status === 'thinking'}
         isError={safeState.status === 'error'}
       />
+      {/* Name above the avatar's head */}
+      <Text
+        position={[0, 1.05, 0]}
+        fontSize={0.12}
+        color="white"
+        anchorX="center"
+        anchorY="middle"
+        outlineWidth={0.01}
+        outlineColor="#000000"
+      >
+        {agent.emoji} {agent.name}
+      </Text>
     </group>
   );
 }
