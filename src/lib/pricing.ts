@@ -11,6 +11,7 @@ export interface ModelPricing {
   inputPricePerMillion: number;
   outputPricePerMillion: number;
   contextWindow: number;
+  source?: string;
 }
 
 export const MODEL_PRICING: ModelPricing[] = [
@@ -134,6 +135,11 @@ export function getModelName(modelId: string): string {
     (p) => p.id === modelId || p.alias === modelId
   );
   return pricing?.name || modelId;
+}
+
+export function getModelPricing(modelId: string): ModelPricing | null {
+  const normalized = normalizeModelId(modelId);
+  return MODEL_PRICING.find((p) => p.id === normalized || p.alias === modelId || p.id === modelId) || null;
 }
 
 /**

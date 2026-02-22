@@ -8,10 +8,37 @@ import {
   getDailyCost,
   getHourlyCost,
 } from "@/lib/usage-queries";
+import { getModelPricing } from "@/lib/pricing";
 import path from "path";
+import fs from "fs";
+import os from "os";
 
 const DB_PATH = path.join(process.cwd(), "data", "usage-tracking.db");
 const DEFAULT_BUDGET = 100.0; // Default budget in USD
+
+function getSelectedModelsWithPricing() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".openclaw", "openclaw.json"), "utf-8"));
+    const models = new Set<string>();
+
+    const defaults = cfg?.agents?.defaults?.model;
+    if (defaults?.primary) models.add(defaults.primary);
+    for (const m of defaults?.fallbacks || []) models.add(m);
+    for (const m of Object.keys(cfg?.agents?.defaults?.models || {})) models.add(m);
+
+    return Array.from(models).map((id) => {
+      const p = getModelPricing(id);
+      return {
+        model: id,
+        inputPerM: p?.inputPricePerMillion ?? null,
+        outputPerM: p?.outputPricePerMillion ?? null,
+        source: p ? "published/default" : "missing",
+      };
+    });
+  } catch {
+    return [];
+  }
+}
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -24,7 +51,6 @@ export async function GET(request: NextRequest) {
     const db = getDatabase(DB_PATH);
 
     if (!db) {
-      // Database doesn't exist yet - return zeros
       return NextResponse.json({
         today: 0,
         yesterday: 0,
@@ -36,6 +62,7 @@ export async function GET(request: NextRequest) {
         byModel: [],
         daily: [],
         hourly: [],
+        modelPricing: getSelectedModelsWithPricing(),
         message: "No usage data collected yet. Run collect-usage script first.",
       });
     }
@@ -56,6 +83,7 @@ export async function GET(request: NextRequest) {
       byModel,
       daily,
       hourly,
+      modelPricing: getSelectedModelsWithPricing(),
     });
   } catch (error) {
     console.error("Error fetching cost data:", error);

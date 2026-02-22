@@ -23,6 +23,12 @@ export interface SessionData {
   percentUsed: number;
 }
 
+function agentIdFromKey(key: string): string {
+  const parts = String(key || "").split(":");
+  if (parts[0] === "agent" && parts[1]) return parts[1];
+  return "unknown";
+}
+
 export interface UsageSnapshot {
   timestamp: number;
   date: string; // YYYY-MM-DD
@@ -36,94 +42,62 @@ export interface UsageSnapshot {
 }
 
 /**
- * Get current OpenClaw status with session data
+ * Get all OpenClaw sessions with historical data
  */
-export async function getOpenClawStatus(): Promise<any> {
+export async function getOpenClawSessions(): Promise<SessionData[]> {
   try {
     const { stdout } = await execAsync("openclaw status --json");
-    return JSON.parse(stdout);
+    const status = JSON.parse(stdout);
+    const paths: string[] = Array.isArray(status?.sessions?.paths) ? status.sessions.paths : [];
+    const sessions: SessionData[] = [];
+
+    for (const p of paths) {
+      if (!fs.existsSync(p)) continue;
+      const obj = JSON.parse(fs.readFileSync(p, "utf-8"));
+      for (const [key, meta] of Object.entries<any>(obj || {})) {
+        sessions.push({
+          agentId: agentIdFromKey(key),
+          sessionKey: key,
+          sessionId: meta?.sessionId || "",
+          model: normalizeModelId(meta?.model || "unknown"),
+          inputTokens: meta?.inputTokens || 0,
+          outputTokens: meta?.outputTokens || 0,
+          totalTokens: meta?.totalTokens || 0,
+          updatedAt: meta?.updatedAt || Date.now(),
+          percentUsed: meta?.percentUsed || 0,
+        });
+      }
+    }
+
+    return sessions;
   } catch (error) {
-    console.error("Error getting OpenClaw status:", error);
+    console.error("Error getting OpenClaw sessions:", error);
     throw error;
   }
 }
 
 /**
- * Extract session data from status
- */
-export function extractSessionData(status: any): SessionData[] {
-  const sessions: SessionData[] = [];
-
-  if (!status.sessions?.byAgent) {
-    return sessions;
-  }
-
-  for (const agentGroup of status.sessions.byAgent) {
-    const agentId = agentGroup.agentId;
-
-    for (const session of agentGroup.recent || []) {
-      sessions.push({
-        agentId,
-        sessionKey: session.key,
-        sessionId: session.sessionId,
-        model: normalizeModelId(session.model || "unknown"),
-        inputTokens: session.inputTokens || 0,
-        outputTokens: session.outputTokens || 0,
-        totalTokens: session.totalTokens || 0,
-        updatedAt: session.updatedAt,
-        percentUsed: session.percentUsed || 0,
-      });
-    }
-  }
-
-  return sessions;
-}
-
-/**
- * Calculate cost snapshot from session data
+ * Calculate snapshots from session totals (one row per session)
  */
 export function calculateSnapshot(
   sessions: SessionData[],
   timestamp: number
 ): UsageSnapshot[] {
-  const snapshots: UsageSnapshot[] = [];
-  const date = new Date(timestamp);
-  const dateStr = date.toISOString().split("T")[0]; // YYYY-MM-DD
-  const hour = date.getUTCHours();
-
-  // Group by agent and model
-  const grouped = new Map<string, SessionData[]>();
-
-  for (const session of sessions) {
-    const key = `${session.agentId}:${session.model}`;
-    if (!grouped.has(key)) {
-      grouped.set(key, []);
-    }
-    grouped.get(key)!.push(session);
-  }
-
-  // Calculate totals and costs
-  for (const [key, group] of grouped.entries()) {
-    const [agentId, model] = key.split(":");
-    const inputTokens = group.reduce((sum, s) => sum + s.inputTokens, 0);
-    const outputTokens = group.reduce((sum, s) => sum + s.outputTokens, 0);
-    const totalTokens = group.reduce((sum, s) => sum + s.totalTokens, 0);
-    const cost = calculateCost(model, inputTokens, outputTokens);
-
-    snapshots.push({
-      timestamp,
-      date: dateStr,
-      hour,
-      agentId,
-      model,
-      inputTokens,
-      outputTokens,
-      totalTokens,
-      cost,
-    });
-  }
-
-  return snapshots;
+  return sessions.map((s) => {
+    const ts = s.updatedAt || timestamp;
+    const d = new Date(ts);
+    return {
+      timestamp: ts,
+      date: d.toISOString().split("T")[0],
+      hour: d.getUTCHours(),
+      agentId: s.agentId,
+      model: s.model,
+      inputTokens: s.inputTokens,
+      outputTokens: s.outputTokens,
+      totalTokens: s.totalTokens,
+      cost: calculateCost(s.model, s.inputTokens, s.outputTokens),
+    };
+  });
 }
 
 /**
@@ -198,27 +172,19 @@ export async function collectUsage(dbPath: string): Promise<void> {
   const db = initDatabase(dbPath);
 
   try {
-    // Get current status
-    const status = await getOpenClawStatus();
-    const sessions = extractSessionData(status);
+    // Get all historical sessions
+    const sessions = await getOpenClawSessions();
     const timestamp = Date.now();
     const snapshots = calculateSnapshot(sessions, timestamp);
 
-    // Delete any snapshots from the same hour (avoid duplicates)
-    const hour = new Date(timestamp).getUTCHours();
-    const date = new Date(timestamp).toISOString().split("T")[0];
-    
-    db.prepare(`
-      DELETE FROM usage_snapshots 
-      WHERE date = ? AND hour = ?
-    `).run(date, hour);
+    // Full rebuild to avoid drift/duplicates and include all past sessions
+    db.prepare(`DELETE FROM usage_snapshots`).run();
 
-    // Save new snapshots
     for (const snapshot of snapshots) {
       saveSnapshot(db, snapshot);
     }
 
-    console.log(`Collected ${snapshots.length} usage snapshots for ${date} ${hour}:00 UTC`);
+    console.log(`Rebuilt ${snapshots.length} usage snapshots from all sessions`);
   } finally {
     db.close();
   }

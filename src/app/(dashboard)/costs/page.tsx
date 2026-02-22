@@ -15,20 +15,17 @@ interface CostData {
   byModel: Array<{ model: string; cost: number; tokens: number }>;
   daily: Array<{ date: string; cost: number; input: number; output: number }>;
   hourly: Array<{ hour: string; cost: number }>;
+  modelPricing?: Array<{ model: string; inputPerM: number | null; outputPerM: number | null; source: string }>;
 }
 
 const COLORS = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#00C7BE', '#30B0C7', '#32ADE6', '#007AFF', '#5856D6', '#AF52DE', '#FF2D55'];
 
-const MODEL_PRICES = {
-  "opus-4.6": { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
-  "sonnet-4.5": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-  "haiku-3.5": { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1.0 },
-};
 
 export default function CostsPage() {
   const [costData, setCostData] = useState<CostData | null>(null);
   const [loading, setLoading] = useState(true);
   const [timeframe, setTimeframe] = useState<"7d" | "30d" | "90d">("30d");
+  const [pricingPage, setPricingPage] = useState(1);
 
   useEffect(() => {
     fetchCostData();
@@ -76,6 +73,11 @@ export default function CostsPage() {
   const budgetColor = budgetPercent < 60 ? "var(--success)" : budgetPercent < 85 ? "var(--warning)" : "var(--error)";
   const todayChange = ((costData.today - costData.yesterday) / costData.yesterday) * 100;
   const monthChange = ((costData.thisMonth - costData.lastMonth) / costData.lastMonth) * 100;
+  const pricingRows = costData.modelPricing || [];
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(pricingRows.length / pageSize));
+  const start = (pricingPage - 1) * pageSize;
+  const pagedPricing = pricingRows.slice(start, start + pageSize);
 
   return (
     <div className="space-y-6">
@@ -314,7 +316,7 @@ export default function CostsPage() {
       {/* Model Pricing Table */}
       <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
         <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
-          Model Pricing (per 1M tokens)
+          Model Pricing (selected in OpenClaw, per 1M tokens)
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -323,24 +325,29 @@ export default function CostsPage() {
                 <th className="text-left py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Model</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Input</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Output</th>
-                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Cache Read</th>
-                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Cache Write</th>
+                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Source</th>
               </tr>
             </thead>
             <tbody>
-              {Object.entries(MODEL_PRICES).map(([model, prices]) => (
-                <tr key={model} style={{ borderBottom: "1px solid var(--border)" }}>
-                  <td className="py-3 px-4">
-                    <span className="font-medium" style={{ color: "var(--text-primary)" }}>{model}</span>
-                  </td>
-                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>${prices.input}</td>
-                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>${prices.output}</td>
-                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>${prices.cacheRead}</td>
-                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>${prices.cacheWrite}</td>
+              {pagedPricing.map((row) => (
+                <tr key={row.model} style={{ borderBottom: "1px solid var(--border)" }}>
+                  <td className="py-3 px-4"><span className="font-medium" style={{ color: "var(--text-primary)" }}>{row.model}</span></td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.inputPerM == null ? "N/A" : `$${row.inputPerM}`}</td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.outputPerM == null ? "N/A" : `$${row.outputPerM}`}</td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.source}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="flex items-center justify-between mt-4">
+          <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
+            Page {pricingPage} / {totalPages} · {pricingRows.length} models
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setPricingPage((p) => Math.max(1, p - 1))} disabled={pricingPage === 1} className="px-3 py-1 rounded border" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Prev</button>
+            <button onClick={() => setPricingPage((p) => Math.min(totalPages, p + 1))} disabled={pricingPage === totalPages} className="px-3 py-1 rounded border" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Next</button>
+          </div>
         </div>
       </div>
 
