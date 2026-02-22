@@ -111,6 +111,17 @@ export default function CostsPage() {
   const start = (pricingPage - 1) * pageSize;
   const pagedPricing = pricingRows.slice(start, start + pageSize);
   const bestPerf = pricingRows[0];
+  const tokenSplit = pricingRows.reduce((acc, r) => {
+    if (r.local) acc.local += Number(r.usageTokens || 0);
+    else acc.cloud += Number(r.usageTokens || 0);
+    return acc;
+  }, { cloud: 0, local: 0 });
+  const tokenSplitChart = [
+    { name: "Cloud", value: tokenSplit.cloud },
+    { name: "Local", value: tokenSplit.local },
+  ];
+  const tokenSplitTotal = tokenSplit.cloud + tokenSplit.local;
+
   const bySpeed = [...pricingRows].sort((a,b)=>b.ranking.speed-a.ranking.speed);
   const byThinking = [...pricingRows].sort((a,b)=>{
     const score=(x:string)=>x==="high"?3:x==="medium"?2:1;
@@ -353,6 +364,37 @@ export default function CostsPage() {
           </ResponsiveContainer>
         </div>
       )}
+      {deployment === "all" && (
+        <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+          <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
+            Run Share by Token Generation (Cloud vs Local)
+          </h3>
+          <ResponsiveContainer width="100%" height={280}>
+            <RePieChart>
+              <Pie
+                data={tokenSplitChart}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="50%"
+                outerRadius={100}
+                label={(entry) => {
+                  const pct = tokenSplitTotal > 0 ? (entry.value / tokenSplitTotal) * 100 : 0;
+                  return `${entry.name}: ${pct.toFixed(1)}%`;
+                }}
+              >
+                <Cell fill="#FF3B30" />
+                <Cell fill="#34C759" />
+              </Pie>
+              <Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} formatter={(v:any, _n:any, p:any)=> {
+                const pct = tokenSplitTotal > 0 ? (Number(v)/tokenSplitTotal)*100 : 0;
+                return [`${Number(v).toLocaleString()} tokens (${pct.toFixed(1)}%)`, p?.name || ""]; }} />
+              <Legend />
+            </RePieChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
       {/* Model Pricing Table */}
       <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
         <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
