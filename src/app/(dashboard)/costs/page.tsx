@@ -16,7 +16,7 @@ interface CostData {
   byModel: Array<{ model: string; cost: number; tokens: number }>;
   daily: Array<{ date: string; cost: number; input: number; output: number }>;
   hourly: Array<{ hour: string; cost: number }>;
-  modelPricing?: Array<{ model: string; inputPerM: number | null; outputPerM: number | null; localEstPerM: number; source: string; local: boolean; available: boolean; tpsCloud: number; tpsLocal: number; agents: string[]; ranking: { perfPrice: number; complex: string; research: string; thinking: string; speed: number } }>;
+  modelPricing?: Array<{ model: string; inputPerM: number | null; outputPerM: number | null; localEstPerM: number; source: string; pricingSource: string; local: boolean; available: boolean; tpsCloud: number; tpsLocal: number; agents: string[]; usageCost: number; usageTokens: number; agentCount: number; ranking: { perfPrice: number; complex: string; research: string; thinking: string; speed: number } }>;
 }
 
 const COLORS = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#00C7BE', '#30B0C7', '#32ADE6', '#007AFF', '#5856D6', '#AF52DE', '#FF2D55'];
@@ -29,6 +29,7 @@ export default function CostsPage() {
   const [pricingPage, setPricingPage] = useState(1);
   const [deployment, setDeployment] = useState<"cloud" | "local" | "all">("cloud");
   const [refreshing, setRefreshing] = useState(false);
+  const [rankSort, setRankSort] = useState<"usage"|"perf"|"complex"|"research"|"thinking"|"speed">("usage");
 
   useEffect(() => {
     fetchCostData();
@@ -91,7 +92,16 @@ export default function CostsPage() {
   const budgetColor = budgetPercent < 60 ? "var(--success)" : budgetPercent < 85 ? "var(--warning)" : "var(--error)";
   const todayChange = ((costData.today - costData.yesterday) / costData.yesterday) * 100;
   const monthChange = ((costData.thisMonth - costData.lastMonth) / costData.lastMonth) * 100;
-  const pricingRows = costData.modelPricing || [];
+  const pricingRowsBase = costData.modelPricing || [];
+  const score = (x:string)=> x==="high"?3:x==="medium"?2:1;
+  const pricingRows = [...pricingRowsBase].sort((a,b)=>{
+    if(rankSort==="usage") return (b.usageCost-a.usageCost)||(b.agentCount-a.agentCount);
+    if(rankSort==="perf") return b.ranking.perfPrice-a.ranking.perfPrice;
+    if(rankSort==="speed") return b.ranking.speed-a.ranking.speed;
+    if(rankSort==="complex") return score(b.ranking.complex)-score(a.ranking.complex);
+    if(rankSort==="research") return score(b.ranking.research)-score(a.ranking.research);
+    return score(b.ranking.thinking)-score(a.ranking.thinking);
+  });
   const pageSize = 10;
   const totalPages = Math.max(1, Math.ceil(pricingRows.length / pageSize));
   const start = (pricingPage - 1) * pageSize;
@@ -134,6 +144,15 @@ export default function CostsPage() {
               {refreshing ? "Refreshing..." : "Refresh latest quota/info"}
             </button>
           </div>
+          <div className="flex gap-1">
+            {(["usage","perf","complex","research","thinking","speed"] as const).map((m)=>(
+              <button key={m} onClick={()=>setRankSort(m)} className="px-2 py-1 rounded border text-[11px]" style={{ borderColor: "var(--border)", color: rankSort===m ? "var(--accent)" : "var(--text-secondary)" }}>
+                {m}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+          </div>
         </div>
       </div>
 
@@ -142,7 +161,7 @@ export default function CostsPage() {
         <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
           <h3 className="text-md font-semibold" style={{ color: "var(--text-primary)" }}>Local Models Focus</h3>
           <p style={{ color: "var(--text-secondary)", fontSize: 12 }}>
-            Showing all available local models from OpenClaw models list, with current agent usage and VPS-based 1M token estimates.
+            Showing all available local models from OpenClaw models list. If no local usage exists yet, values are representative estimates for this VPS and ready for when local inference is enabled.
           </p>
         </div>
       )}
@@ -353,6 +372,8 @@ export default function CostsPage() {
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border)" }}>
                 <th className="text-left py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Model</th>
+                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Usage $</th>
+                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Agents #</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Input</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Output</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Local Est</th>
@@ -367,6 +388,8 @@ export default function CostsPage() {
               {pagedPricing.map((row) => (
                 <tr key={row.model} style={{ borderBottom: "1px solid var(--border)" }}>
                   <td className="py-3 px-4"><span className="font-medium" style={{ color: "var(--text-primary)" }}>{row.model}</span></td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>${(row.usageCost||0).toFixed(2)}</td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.agentCount}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.inputPerM == null ? "N/A" : `$${row.inputPerM}`}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.outputPerM == null ? "N/A" : `$${row.outputPerM}`}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>${row.localEstPerM}</td>
@@ -374,7 +397,7 @@ export default function CostsPage() {
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.ranking?.perfPrice ?? '-'}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{`${row.ranking?.complex || '-'} / ${row.ranking?.research || '-'} / ${row.ranking?.thinking || '-'}`}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{(row.agents || []).join(", ") || "-"}</td>
-                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.source}</td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.source} · {row.pricingSource}</td>
                 </tr>
               ))}
             </tbody>
