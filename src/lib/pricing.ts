@@ -73,6 +73,31 @@ export const MODEL_PRICING: ModelPricing[] = [
     outputPricePerMillion: 1.10,
     contextWindow: 1000000,
   },
+  // OpenAI (estimated defaults for dashboard analytics)
+  {
+    id: "openai/gpt-5",
+    name: "GPT-5",
+    alias: "gpt-5",
+    inputPricePerMillion: 3.0,
+    outputPricePerMillion: 15.0,
+    contextWindow: 272000,
+  },
+  {
+    id: "openai/gpt-5.2",
+    name: "GPT-5.2",
+    alias: "gpt-5.2",
+    inputPricePerMillion: 3.0,
+    outputPricePerMillion: 15.0,
+    contextWindow: 272000,
+  },
+  {
+    id: "openai/gpt-5.3-codex",
+    name: "GPT-5.3 Codex",
+    alias: "gpt-5.3-codex",
+    inputPricePerMillion: 3.0,
+    outputPricePerMillion: 15.0,
+    contextWindow: 272000,
+  },
 ];
 
 /**
@@ -132,6 +157,10 @@ export function normalizeModelId(modelId: string): string {
     // MiniMax
     minimax: "minimax/minimax-m2.5",
     "minimax-m2.5": "minimax/minimax-m2.5",
+    // OpenAI aliases
+    "gpt-5": "openai/gpt-5",
+    "gpt-5.2": "openai/gpt-5.2",
+    "gpt-5.3-codex": "openai/gpt-5.3-codex",
   };
 
   return aliasMap[modelId] || modelId;

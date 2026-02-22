@@ -1,7 +1,7 @@
 /**
  * Quick Actions API
  * POST /api/actions  body: { action }
- * Available actions: git-status, restart-gateway, clear-temp, usage-stats, heartbeat
+ * Available actions: git-status, restart-gateway, gateway-status, openclaw-status, sessions-list, models-list, cron-list, clear-temp, usage-stats, heartbeat
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { exec } from 'child_process';
@@ -48,13 +48,42 @@ async function runAction(action: string): Promise<ActionResult> {
       }
 
       case 'restart-gateway': {
-        const { stdout, stderr } = await execAsync('systemctl restart openclaw-gateway 2>&1 || echo "Service not found"');
+        const { stdout, stderr } = await execAsync('openclaw gateway restart 2>&1 || systemctl restart openclaw-gateway 2>&1 || echo "Service not found"');
         output = stdout || stderr || 'Restart command executed';
-        // Also check status
         try {
-          const { stdout: status } = await execAsync('systemctl is-active openclaw-gateway 2>&1 || echo "unknown"');
+          const { stdout: status } = await execAsync('openclaw gateway status 2>&1 || systemctl is-active openclaw-gateway 2>&1 || echo "unknown"');
           output += `\nStatus: ${status.trim()}`;
         } catch {}
+        break;
+      }
+
+      case 'gateway-status': {
+        const { stdout, stderr } = await execAsync('openclaw gateway status 2>&1 || systemctl status openclaw-gateway --no-pager -n 20 2>&1');
+        output = stdout || stderr || 'No gateway status output';
+        break;
+      }
+
+      case 'openclaw-status': {
+        const { stdout, stderr } = await execAsync('openclaw status --json 2>/dev/null || openclaw status 2>&1');
+        output = stdout || stderr || 'No status output';
+        break;
+      }
+
+      case 'sessions-list': {
+        const { stdout, stderr } = await execAsync('openclaw sessions --json 2>/dev/null || openclaw sessions 2>&1');
+        output = stdout || stderr || 'No sessions output';
+        break;
+      }
+
+      case 'models-list': {
+        const { stdout, stderr } = await execAsync('openclaw models list --json 2>/dev/null || openclaw models list 2>&1');
+        output = stdout || stderr || 'No models output';
+        break;
+      }
+
+      case 'cron-list': {
+        const { stdout, stderr } = await execAsync('openclaw cron list --json 2>/dev/null || openclaw cron list 2>&1');
+        output = stdout || stderr || 'No cron output';
         break;
       }
 
@@ -146,7 +175,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing action' }, { status: 400 });
     }
 
-    const validActions = ['git-status', 'restart-gateway', 'clear-temp', 'usage-stats', 'heartbeat', 'npm-audit'];
+    const validActions = ['git-status', 'restart-gateway', 'gateway-status', 'openclaw-status', 'sessions-list', 'models-list', 'cron-list', 'clear-temp', 'usage-stats', 'heartbeat', 'npm-audit'];
     if (!validActions.includes(action)) {
       return NextResponse.json({ error: `Unknown action. Valid: ${validActions.join(', ')}` }, { status: 400 });
     }

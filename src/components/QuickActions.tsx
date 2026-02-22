@@ -85,10 +85,45 @@ export function QuickActions({ onActionComplete }: QuickActionsProps) {
   const actions: ActionButton[] = [
     {
       id: "restart_gateway",
-      label: "Restart OpenClaw Gateway",
+      label: "Restart Gateway",
       icon: RefreshCw,
       color: "blue",
       action: () => callAction("restart_gateway", "restart-gateway"),
+    },
+    {
+      id: "gateway_status",
+      label: "Gateway Status",
+      icon: Activity,
+      color: "emerald",
+      action: () => callAction("gateway_status", "gateway-status"),
+    },
+    {
+      id: "openclaw_status",
+      label: "OpenClaw Status",
+      icon: Activity,
+      color: "emerald",
+      action: () => callAction("openclaw_status", "openclaw-status"),
+    },
+    {
+      id: "sessions",
+      label: "Sessions List",
+      icon: FileText,
+      color: "blue",
+      action: () => callAction("sessions", "sessions-list"),
+    },
+    {
+      id: "models",
+      label: "Models List",
+      icon: FileText,
+      color: "blue",
+      action: () => callAction("models", "models-list"),
+    },
+    {
+      id: "cron",
+      label: "Cron Jobs",
+      icon: FileText,
+      color: "blue",
+      action: () => callAction("cron", "cron-list"),
     },
     {
       id: "heartbeat",

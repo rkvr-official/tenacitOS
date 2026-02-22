@@ -27,7 +27,7 @@ function parseIdentityMd(): { name: string; creature: string; emoji: string } {
   }
 }
 
-function getIntegrationStatus() {
+function getIntegrationStatus(openclawStatus: any = null) {
   const integrations = [];
   let openclawConfig: any = {};
 
@@ -35,6 +35,13 @@ function getIntegrationStatus() {
     const openclawConfigPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
     openclawConfig = JSON.parse(fs.readFileSync(openclawConfigPath, 'utf-8'));
   } catch {}
+
+  const recent = Array.isArray(openclawStatus?.sessions?.recent) ? openclawStatus.sessions.recent : [];
+  const lastByNeedle = (needle: string): string | null => {
+    const row = recent.find((s: any) => String(s?.key || '').includes(needle));
+    if (!row?.updatedAt) return null;
+    return new Date(row.updatedAt).toISOString();
+  };
 
   // Telegram
   const telegramConfig = openclawConfig?.channels?.telegram;
@@ -45,7 +52,7 @@ function getIntegrationStatus() {
     name: 'Telegram',
     status: telegramEnabled ? 'connected' : 'disconnected',
     icon: 'MessageCircle',
-    lastActivity: telegramEnabled ? new Date().toISOString() : null,
+    lastActivity: lastByNeedle(':telegram:') || null,
     detail: telegramEnabled ? `${telegramAccounts} bots configured` : null,
   });
 
@@ -58,7 +65,7 @@ function getIntegrationStatus() {
     name: 'Slack',
     status: slackEnabled ? 'connected' : 'disconnected',
     icon: 'Slack',
-    lastActivity: slackEnabled ? new Date().toISOString() : null,
+    lastActivity: lastByNeedle(':slack:') || null,
     detail: slackEnabled ? `${slackAccounts} account(s)` : null,
   });
 
@@ -73,7 +80,7 @@ function getIntegrationStatus() {
     name: 'GitHub',
     status: githubConnected ? 'connected' : 'disconnected',
     icon: 'Github',
-    lastActivity: githubConnected ? new Date().toISOString() : null,
+    lastActivity: null,
     detail: githubConnected ? 'gh CLI authenticated' : 'gh auth required',
   });
 
@@ -102,7 +109,7 @@ function getIntegrationStatus() {
   return integrations;
 }
 
-function getOpenclawRuntime(): { model: string; agentName?: string; workspacePath?: string } {
+function getOpenclawRuntime(): { model: string; agentName?: string; workspacePath?: string; status?: any } {
   try {
     const raw = execSync('openclaw status --json 2>/dev/null', { encoding: 'utf-8', timeout: 8000 });
     const status = JSON.parse(raw);
@@ -129,6 +136,7 @@ function getOpenclawRuntime(): { model: string; agentName?: string; workspacePat
       model: model || process.env.OPENCLAW_MODEL || process.env.DEFAULT_MODEL || 'unknown',
       agentName,
       workspacePath,
+      status,
     };
   } catch {
     return {
@@ -163,7 +171,7 @@ export async function GET() {
         used: os.totalmem() - os.freemem(),
       },
     },
-    integrations: getIntegrationStatus(),
+    integrations: getIntegrationStatus(runtime.status),
     timestamp: new Date().toISOString(),
   };
 
