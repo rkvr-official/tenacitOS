@@ -1,16 +1,7 @@
 import { NextResponse } from "next/server";
 import { NextRequest } from "next/server";
-import {
-  getDatabase,
-  getCostSummary,
-  getCostByAgent,
-  getCostByModel,
-  getDailyCost,
-  getHourlyCost,
-} from "@/lib/usage-queries";
-import path from "path";
+import { aggregateCostsFromSessions } from '@/lib/cost-aggregate';
 
-const DB_PATH = path.join(process.cwd(), "data", "usage-tracking.db");
 const DEFAULT_BUDGET = 100.0; // Default budget in USD
 
 export async function GET(request: NextRequest) {
@@ -21,48 +12,15 @@ export async function GET(request: NextRequest) {
   const days = parseInt(timeframe.replace(/\D/g, ""), 10) || 30;
 
   try {
-    const db = getDatabase(DB_PATH);
-
-    if (!db) {
-      // Database doesn't exist yet - return zeros
-      return NextResponse.json({
-        today: 0,
-        yesterday: 0,
-        thisMonth: 0,
-        lastMonth: 0,
-        projected: 0,
-        budget: DEFAULT_BUDGET,
-        byAgent: [],
-        byModel: [],
-        daily: [],
-        hourly: [],
-        message: "No usage data collected yet. Run collect-usage script first.",
-      });
-    }
-
-    // Get all the data
-    const summary = getCostSummary(db);
-    const byAgent = getCostByAgent(db, days);
-    const byModel = getCostByModel(db, days);
-    const daily = getDailyCost(db, days);
-    const hourly = getHourlyCost(db);
-
-    db.close();
+    const aggregated = await aggregateCostsFromSessions({ days });
 
     return NextResponse.json({
-      ...summary,
+      ...aggregated,
       budget: DEFAULT_BUDGET,
-      byAgent,
-      byModel,
-      daily,
-      hourly,
     });
   } catch (error) {
-    console.error("Error fetching cost data:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch cost data" },
-      { status: 500 }
-    );
+    console.error('Error fetching cost data:', error);
+    return NextResponse.json({ error: 'Failed to fetch cost data' }, { status: 500 });
   }
 }
 
