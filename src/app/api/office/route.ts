@@ -203,11 +203,9 @@ export async function GET() {
         status = getAgentStatusFromFiles(agent.id, agent.workspace);
       }
 
-      // Map freelance -> devclaw for canvas compatibility
-      const canvasId = agent.id === "freelance" ? "devclaw" : agent.id;
-
       return {
-        id: canvasId,
+        // Keep id stable and UNIQUE (do not alias multiple agents to the same id)
+        id: agent.id,
         name: agentInfo.name,
         emoji: agentInfo.emoji,
         color: agentInfo.color,

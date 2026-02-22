@@ -2,10 +2,10 @@
 
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Sky, Environment } from '@react-three/drei';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Vector3 } from 'three';
-import { AGENTS } from './agentsConfig';
-import type { AgentState } from './agentsConfig';
+import { AGENTS as STATIC_AGENTS } from './agentsConfig';
+import type { AgentConfig, AgentState } from './agentsConfig';
 import AgentDesk from './AgentDesk';
 import Floor from './Floor';
 import Walls from './Walls';
@@ -25,12 +25,13 @@ export default function Office3D() {
   const [controlMode, setControlMode] = useState<'orbit' | 'fps'>('orbit');
   const [avatarPositions, setAvatarPositions] = useState<Map<string, any>>(new Map());
   
-  // Mock data - TODO: Replace with real API data
-  // IMPORTANT: keys must match AGENTS[].id to avoid undefined states / position mismatches.
-  const [agentStates] = useState<Record<string, AgentState>>(() => {
+  const [agents, setAgents] = useState<AgentConfig[]>(STATIC_AGENTS);
+
+  // Agent state comes from /api/office when available; fallback to deterministic mock.
+  const [agentStates, setAgentStates] = useState<Record<string, AgentState>>(() => {
     const statuses: AgentState['status'][] = ['working', 'idle', 'thinking', 'working', 'idle', 'error'];
     return Object.fromEntries(
-      AGENTS.map((a, idx) => [
+      STATIC_AGENTS.map((a, idx) => [
         a.id,
         {
           id: a.id,
@@ -49,6 +50,89 @@ export default function Office3D() {
       ])
     );
   });
+
+  const OFFICE_POSITIONS = useMemo(() => {
+    // Positions by agent id. Uses the baked layout for known ids; otherwise assigns free desks.
+    const map = new Map<string, [number, number, number]>();
+    for (const a of STATIC_AGENTS) map.set(a.id, a.position);
+    return map;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const res = await fetch('/api/office', { cache: 'no-store' });
+        const json = await res.json();
+        const apiAgents = (json?.agents ?? []) as Array<{
+          id: string;
+          name: string;
+          emoji: string;
+          color: string;
+          role: string;
+          currentTask?: string;
+          isActive?: boolean;
+        }>;
+
+        if (!Array.isArray(apiAgents) || apiAgents.length === 0) return;
+
+        // Ensure unique ids (duplicate ids cause avatars to collapse into one position/state)
+        const seen = new Set<string>();
+        const uniqueApiAgents = apiAgents.filter((a) => {
+          if (!a?.id || seen.has(a.id)) return false;
+          seen.add(a.id);
+          return true;
+        });
+
+        const nextAgents: AgentConfig[] = uniqueApiAgents.map((a, idx) => {
+          const pos = OFFICE_POSITIONS.get(a.id) ?? STATIC_AGENTS[idx % STATIC_AGENTS.length].position;
+          return {
+            id: a.id,
+            name: a.name ?? a.id,
+            emoji: a.emoji ?? '🤖',
+            position: pos,
+            color: a.color ?? '#666',
+            role: a.role ?? 'Agent',
+          };
+        });
+
+        const nextStates: Record<string, AgentState> = {};
+        for (const a of uniqueApiAgents) {
+          const task = a.currentTask ?? '';
+          let status: AgentState['status'] = 'idle';
+          if (task.startsWith('ACTIVE')) status = 'working';
+          else if (task.startsWith('IDLE')) status = 'idle';
+          else if (task.startsWith('SLEEPING')) status = 'idle';
+          else if (a.isActive) status = 'working';
+
+          nextStates[a.id] = {
+            id: a.id,
+            status,
+            currentTask: a.currentTask,
+            model: undefined,
+            tokensPerHour: undefined,
+            tasksInQueue: undefined,
+            uptime: undefined,
+          };
+        }
+
+        if (!cancelled) {
+          setAgents(nextAgents);
+          setAgentStates(nextStates);
+        }
+      } catch {
+        // ignore and keep fallback
+      }
+    };
+
+    load();
+    const i = setInterval(load, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(i);
+    };
+  }, [OFFICE_POSITIONS]);
 
   const handleDeskClick = (agentId: string) => {
     setSelectedAgent(agentId);
@@ -81,7 +165,7 @@ export default function Office3D() {
   // Definir obstáculos (muebles)
   const obstacles = [
     // Escritorios (6)
-    ...AGENTS.map(agent => ({
+    ...agents.map(agent => ({
       position: new Vector3(agent.position[0], 0, agent.position[2]),
       radius: 1.5
     })),
@@ -126,22 +210,22 @@ export default function Office3D() {
           <Walls />
 
           {/* Escritorios de agentes (sin avatares) */}
-          {AGENTS.map((agent) => (
+          {agents.map((agent) => (
             <AgentDesk
               key={agent.id}
               agent={agent}
-              state={agentStates[agent.id]}
+              state={agentStates[agent.id] ?? ({ id: agent.id, status: 'idle' } as AgentState)}
               onClick={() => handleDeskClick(agent.id)}
               isSelected={selectedAgent === agent.id}
             />
           ))}
 
           {/* Avatares móviles */}
-          {AGENTS.map((agent) => (
+          {agents.map((agent) => (
             <MovingAvatar
               key={`avatar-${agent.id}`}
               agent={agent}
-              state={agentStates[agent.id]}
+              state={agentStates[agent.id] ?? ({ id: agent.id, status: 'idle' } as AgentState)}
               officeBounds={{ minX: -8, maxX: 8, minZ: -7, maxZ: 7 }}
               obstacles={obstacles}
               otherAvatarPositions={avatarPositions}
@@ -192,8 +276,8 @@ export default function Office3D() {
       {/* Panel lateral cuando se selecciona un agente */}
       {selectedAgent && (
         <AgentPanel
-          agent={AGENTS.find(a => a.id === selectedAgent)!}
-          state={agentStates[selectedAgent]}
+          agent={agents.find(a => a.id === selectedAgent)!}
+          state={agentStates[selectedAgent] ?? ({ id: selectedAgent, status: 'idle' } as AgentState)}
           onClose={handleClosePanel}
         />
       )}
