@@ -27,6 +27,7 @@ interface WeatherData {
 export function WeatherWidget() {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [geoBlocked, setGeoBlocked] = useState(false);
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -43,6 +44,8 @@ export function WeatherWidget() {
             { enableHighAccuracy: false, timeout: 4000, maximumAge: 5 * 60 * 1000 }
           );
         });
+
+        if (!pos) setGeoBlocked(true);
 
         const url = pos
           ? `/api/weather?lat=${encodeURIComponent(pos.coords.latitude)}&lon=${encodeURIComponent(pos.coords.longitude)}`
@@ -95,6 +98,11 @@ export function WeatherWidget() {
     }}>
       {/* Header: city + clock */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "0.75rem" }}>
+        {geoBlocked ? (
+          <div style={{ position: "absolute", marginTop: "-0.25rem", fontSize: "0.7rem", color: "var(--text-muted)" }}>
+            Location blocked → showing Madrid. Enable location permissions to personalize.
+          </div>
+        ) : null}
         <div>
           <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.125rem" }}>
             📍 {weather.city}

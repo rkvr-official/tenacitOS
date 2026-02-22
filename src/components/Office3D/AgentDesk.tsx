@@ -61,7 +61,14 @@ export default function AgentDesk({ agent, state, onClick, isSelected }: AgentDe
   };
 
   return (
-    <group position={agent.position}>
+    <group
+      position={agent.position}
+      // Make the whole desk cluster clickable (not just the top mesh).
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
       {/* Desk surface */}
       <Box
         ref={deskRef}
@@ -69,7 +76,10 @@ export default function AgentDesk({ agent, state, onClick, isSelected }: AgentDe
         position={[0, 0.75, 0]}
         castShadow
         receiveShadow
-        onClick={onClick}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
         onPointerOver={() => setHovered(true)}
         onPointerOut={() => setHovered(false)}
       >
@@ -86,7 +96,10 @@ export default function AgentDesk({ agent, state, onClick, isSelected }: AgentDe
         args={[1.2, 0.8, 0.05]}
         position={[0, 1.5, -0.5]}
         castShadow
-        onClick={onClick}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
       >
         <meshStandardMaterial
           color={getStatusColor()}
