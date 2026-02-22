@@ -8,7 +8,7 @@ export async function GET() {
     const agents = getAgents();
     return NextResponse.json({ agents });
   } catch (error) {
-    console.error("Error reading agents:", error);
+    console.error("[openclaw/agents]", error);
     return NextResponse.json({ error: "Failed to load agents" }, { status: 500 });
   }
 }
