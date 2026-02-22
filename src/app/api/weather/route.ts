@@ -1,12 +1,15 @@
 /**
- * Weather API - Madrid
- * GET /api/weather
+ * Weather API
+ * GET /api/weather?lat=<number>&lon=<number>
  * Uses Open-Meteo (free, no API key)
+ *
+ * - If lat/lon are omitted, falls back to Madrid.
+ * - Caches per (rounded) location for 10 minutes.
  */
 import { NextResponse } from 'next/server';
 
-// Cache weather data for 10 minutes
-let cache: { data: unknown; ts: number } | null = null;
+// Cache weather data for 10 minutes (per location)
+const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_DURATION = 10 * 60 * 1000;
 
 const WMO_CODES: Record<number, { label: string; emoji: string }> = {
@@ -33,26 +36,49 @@ const WMO_CODES: Record<number, { label: string; emoji: string }> = {
   99: { label: "Thunderstorm with heavy hail", emoji: "⛈️" },
 };
 
-export async function GET() {
-  // Return cache if valid
-  if (cache && Date.now() - cache.ts < CACHE_DURATION) {
-    return NextResponse.json(cache.data);
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+
+  const latParam = searchParams.get("lat");
+  const lonParam = searchParams.get("lon");
+
+  const latRaw = latParam ? Number(latParam) : 40.4168;
+  const lonRaw = lonParam ? Number(lonParam) : -3.7038;
+
+  const lat = Number.isFinite(latRaw) ? Math.max(-90, Math.min(90, latRaw)) : 40.4168;
+  const lon = Number.isFinite(lonRaw) ? Math.max(-180, Math.min(180, lonRaw)) : -3.7038;
+
+  // Cache key: round to reduce cache fragmentation
+  const key = `${Math.round(lat * 100) / 100},${Math.round(lon * 100) / 100}`;
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.ts < CACHE_DURATION) {
+    return NextResponse.json(cached.data);
   }
 
   try {
-    // Madrid coordinates: 40.4168° N, 3.7038° W
-    const url = 'https://api.open-meteo.com/v1/forecast?latitude=40.4168&longitude=-3.7038&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,precipitation&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=Europe%2FMadrid&forecast_days=3';
+    const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,precipitation&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=auto&forecast_days=3`;
 
-    const res = await fetch(url, { next: { revalidate: 600 } });
-    const json = await res.json();
+    const [forecastRes, reverseRes] = await Promise.all([
+      fetch(forecastUrl, { next: { revalidate: 600 } }),
+      fetch(
+        `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&language=en&format=json`,
+        { next: { revalidate: 86400 } }
+      ),
+    ]);
 
-    const current = json.current;
-    const daily = json.daily;
+    const forecastJson = await forecastRes.json();
+    const reverseJson = await reverseRes.json();
+
+    const current = forecastJson.current;
+    const daily = forecastJson.daily;
 
     const wmo = WMO_CODES[current.weather_code] || { label: "Unknown", emoji: "🌡️" };
 
+    const place = reverseJson?.results?.[0];
+    const city = place?.name ? String(place.name) : (latParam && lonParam ? "Your location" : "Madrid");
+
     const data = {
-      city: "Madrid",
+      city,
       temp: Math.round(current.temperature_2m),
       feels_like: Math.round(current.apparent_temperature),
       humidity: current.relative_humidity_2m,
@@ -69,7 +95,7 @@ export async function GET() {
       updated: new Date().toISOString(),
     };
 
-    cache = { data, ts: Date.now() };
+    cache.set(key, { data, ts: Date.now() });
     return NextResponse.json(data);
   } catch (error) {
     console.error('[weather] Error:', error);

@@ -137,6 +137,38 @@ export default function Office3D() {
     { position: new Vector3(9, 0, 0), radius: 0.4 },
   ];
 
+  const [webglOk, setWebglOk] = useState(true);
+
+  useEffect(() => {
+    // Basic WebGL availability test (avoids hard crash on sandboxed/disabled GPUs)
+    try {
+      const canvas = document.createElement("canvas");
+      const gl = (canvas.getContext("webgl") || canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
+      setWebglOk(!!gl);
+    } catch {
+      setWebglOk(false);
+    }
+  }, []);
+
+  if (!webglOk) {
+    return (
+      <div className="fixed inset-0 bg-gray-900 text-white flex items-center justify-center p-6">
+        <div className="max-w-lg w-full rounded-2xl border border-white/10 bg-white/5 p-6">
+          <h1 className="text-xl font-semibold mb-2">The Office 3D</h1>
+          <p className="text-sm text-white/70">
+            Your browser can’t create a WebGL context (WebGL disabled / sandboxed / hardware acceleration off).
+          </p>
+          <ul className="mt-4 text-sm text-white/70 list-disc pl-5 space-y-1">
+            <li>Try Chrome/Firefox (not an in-app browser)</li>
+            <li>Enable hardware acceleration</li>
+            <li>Disable “Use hardware acceleration when available” blocks / privacy extensions</li>
+            <li>Check <code className="text-white/80">chrome://gpu</code></li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 bg-gray-900" style={{ height: '100vh', width: '100vw' }}>
       <Canvas

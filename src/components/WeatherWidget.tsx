@@ -30,14 +30,40 @@ export function WeatherWidget() {
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
-    fetch("/api/weather")
-      .then((r) => r.json())
-      .then((d) => { setWeather(d); setLoading(false); })
-      .catch(() => setLoading(false));
+    let cancelled = false;
+
+    async function load() {
+      try {
+        // Prefer user geolocation (browser permission prompt). If denied, fall back to Madrid.
+        const pos = await new Promise<GeolocationPosition | null>((resolve) => {
+          if (typeof navigator === "undefined" || !navigator.geolocation) return resolve(null);
+          navigator.geolocation.getCurrentPosition(
+            (p) => resolve(p),
+            () => resolve(null),
+            { enableHighAccuracy: false, timeout: 4000, maximumAge: 5 * 60 * 1000 }
+          );
+        });
+
+        const url = pos
+          ? `/api/weather?lat=${encodeURIComponent(pos.coords.latitude)}&lon=${encodeURIComponent(pos.coords.longitude)}`
+          : "/api/weather";
+
+        const d = await fetch(url, { cache: "no-store" }).then((r) => r.json());
+        if (cancelled) return;
+        setWeather(d);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
 
     // Update clock every second
     const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, []);
 
   if (loading) {
