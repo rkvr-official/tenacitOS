@@ -47,9 +47,9 @@ export default function Office3D() {
     async function load() {
       try {
         setLoadError(null);
-        const res = await fetch('/api/agents', { cache: 'no-store' });
-        if (!res.ok) throw new Error(`agents_fetch_failed_${res.status}`);
-        const data = (await res.json()) as AgentsApiResponse;
+        const res = await fetch('/api/office', { cache: 'no-store' });
+        if (!res.ok) throw new Error(`office_fetch_failed_${res.status}`);
+        const data = (await res.json()) as { agents: Array<{ id: string; name: string; emoji: string; color: string; role?: string; currentTask?: string; isActive?: boolean }> };
 
         const nextAgents: AgentConfig[] = (data.agents ?? []).map((a, idx) => ({
           id: a.id,
@@ -57,18 +57,16 @@ export default function Office3D() {
           emoji: a.emoji ?? '🤖',
           color: a.color ?? '#666666',
           position: getOfficePosition(a.id, idx),
-          role: 'Agent',
+          role: a.role ?? 'Agent',
         }));
 
         const nextStates: Record<string, AgentState> = {};
         for (const a of data.agents ?? []) {
-          // We only have coarse health in /api/agents today.
-          // Map it to something the 3D office can display without crashing.
           nextStates[a.id] = {
             id: a.id,
-            status: a.status === 'online' ? 'working' : 'idle',
-            model: a.model,
-            currentTask: a.status === 'online' ? 'Active' : undefined,
+            status: a.isActive ? 'working' : 'idle',
+            model: undefined,
+            currentTask: a.currentTask,
           };
         }
 

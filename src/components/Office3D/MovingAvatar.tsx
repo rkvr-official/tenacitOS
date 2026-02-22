@@ -79,8 +79,17 @@ export default function MovingAvatar({
     return true;
   };
 
-  // Cambiar objetivo cada 5-10 segundos (depende del estado)
+  // When working/thinking: stay seated at the desk.
   useEffect(() => {
+    if (safeState.status === 'working' || safeState.status === 'thinking') {
+      setTargetPos(new Vector3(agent.position[0], 0.6, agent.position[2] + 0.9));
+    }
+  }, [agent.position[0], agent.position[2], safeState.status]);
+
+  // Change wander target only when idle/error.
+  useEffect(() => {
+    if (safeState.status === 'working' || safeState.status === 'thinking') return;
+
     const getNewTarget = () => {
       let attempts = 0;
       let newPos: Vector3;

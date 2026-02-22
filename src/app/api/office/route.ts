@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readFileSync, statSync, readdirSync } from "fs";
+import { readFileSync, statSync } from "fs";
 import { join } from "path";
 
 export const dynamic = "force-dynamic";
@@ -137,8 +137,16 @@ async function getAgentStatusFromGateway(): Promise<
   }
 }
 
+function resolveWorkspace(config: any, agentId: string, agentConfig: any): string {
+  if (typeof agentConfig?.workspace === "string" && agentConfig.workspace.length) return agentConfig.workspace;
+  const openclawDir = process.env.OPENCLAW_DIR || "/root/.openclaw";
+  const baseWorkspace = config?.agents?.defaults?.workspace || join(openclawDir, "workspace");
+  const defaultAgentId = config?.heartbeat?.defaultAgentId || config?.agents?.list?.[0]?.id;
+  if (agentId && agentId === defaultAgentId) return baseWorkspace;
+  return `${baseWorkspace}-${agentId}`;
+}
+
 function getAgentStatusFromFiles(
-  agentId: string,
   workspace: string
 ): { isActive: boolean; currentTask: string; lastSeen: number } {
   try {
@@ -200,7 +208,8 @@ export async function GET() {
       // Get status from gateway, or fallback to files
       let status = gatewayStatus[agent.id];
       if (!status) {
-        status = getAgentStatusFromFiles(agent.id, agent.workspace);
+        const workspace = resolveWorkspace(config, agent.id, agent);
+        status = getAgentStatusFromFiles(workspace);
       }
 
       // Map freelance -> devclaw for canvas compatibility
