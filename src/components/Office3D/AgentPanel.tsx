@@ -33,7 +33,7 @@ export default function AgentPanel({ agent, state, onClose }: AgentPanelProps) {
   };
 
   return (
-    <div className="absolute right-0 top-0 h-full w-96 bg-black/90 backdrop-blur-md text-white p-6 shadow-2xl border-l border-white/10">
+    <div className="absolute right-0 top-0 h-full w-96 bg-black/90 backdrop-blur-md text-white p-6 shadow-2xl border-l border-white/10 z-50 pointer-events-auto">
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>

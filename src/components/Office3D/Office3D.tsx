@@ -169,7 +169,7 @@ export default function Office3D() {
   }
 
   return (
-    <div className="fixed inset-0 bg-gray-900" style={{ height: '100vh', width: '100vw' }}>
+    <div className="fixed inset-0 bg-gray-900 relative" style={{ height: '100vh', width: '100vw' }}>
       <Canvas
         camera={{ position: [0, 8, 12], fov: 60 }}
         shadows

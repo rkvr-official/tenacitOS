@@ -5,51 +5,18 @@ import { join } from "path";
 
 export const dynamic = "force-dynamic";
 
-const AGENT_CONFIG = {
-  main: { emoji: "🦞", color: "#ff6b35", name: "Tenacitas", role: "Boss" },
-  academic: {
-    emoji: "🎓",
-    color: "#4ade80",
-    name: "Profe",
-    role: "Teacher",
-  },
-  infra: {
-    emoji: "🔧",
-    color: "#f97316",
-    name: "Infra",
-    role: "DevOps",
-  },
-  studio: {
-    emoji: "🎬",
-    color: "#a855f7",
-    name: "Studio",
-    role: "Video Editor",
-  },
-  social: {
-    emoji: "📱",
-    color: "#ec4899",
-    name: "Social",
-    role: "Social Media",
-  },
-  linkedin: {
-    emoji: "💼",
-    color: "#0077b5",
-    name: "LinkedIn Pro",
-    role: "Professional",
-  },
-  devclaw: {
-    emoji: "👨‍💻",
-    color: "#8b5cf6",
-    name: "DevClaw",
-    role: "Developer",
-  },
-  freelance: {
-    emoji: "👨‍💻",
-    color: "#8b5cf6",
-    name: "DevClaw",
-    role: "Developer",
-  },
-};
+function getAgentDisplayInfo(agentId: string, agentConfig: any) {
+  const configEmoji = agentConfig?.ui?.emoji;
+  const configColor = agentConfig?.ui?.color;
+  const configName = agentConfig?.name;
+
+  return {
+    emoji: configEmoji || "🤖",
+    color: configColor || "#666666",
+    name: configName || agentId,
+    role: "Agent",
+  };
+}
 
 type AgentOfficeStatus = {
   status: "working" | "thinking" | "idle" | "error" | "sleeping";
@@ -203,12 +170,7 @@ export async function GET() {
     }
 
     const agents = config.agents.list.map((agent: any) => {
-      const agentInfo = AGENT_CONFIG[agent.id as keyof typeof AGENT_CONFIG] || {
-        emoji: "🤖",
-        color: "#666",
-        name: agent.name || agent.id,
-        role: "Agent",
-      };
+      const agentInfo = getAgentDisplayInfo(agent.id, agent);
 
       // Get status from sessions, or fallback to files
       let status = sessionStatus[agent.id];
