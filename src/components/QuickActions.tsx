@@ -16,6 +16,7 @@ import { ChangePasswordModal } from "./ChangePasswordModal";
 
 interface QuickActionsProps {
   onActionComplete?: () => void;
+  onActionLog?: (entry: string) => void;
 }
 
 interface ActionButton {
@@ -26,7 +27,7 @@ interface ActionButton {
   action: () => Promise<void> | void;
 }
 
-export function QuickActions({ onActionComplete }: QuickActionsProps) {
+export function QuickActions({ onActionComplete, onActionLog }: QuickActionsProps) {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [notification, setNotification] = useState<{
@@ -37,6 +38,10 @@ export function QuickActions({ onActionComplete }: QuickActionsProps) {
   const showNotification = (type: "success" | "error", message: string) => {
     setNotification({ type, message });
     setTimeout(() => setNotification(null), 4000);
+  };
+
+  const appendLog = (text: string) => {
+    onActionLog?.(`[${new Date().toISOString()}] ${text}`);
   };
 
   const callAction = async (id: string, action: string) => {
@@ -52,11 +57,15 @@ export function QuickActions({ onActionComplete }: QuickActionsProps) {
         throw new Error(data?.output || data?.error || "Action failed");
       }
 
-      const output = String(data.output || "").slice(0, 160).replace(/\n+/g, " · ");
+      const rawOutput = String(data.output || "");
+      const output = rawOutput.slice(0, 160).replace(/\n+/g, " · ");
       showNotification("success", `${action} ok${output ? `: ${output}` : ""}`);
+      appendLog(`${action} ✅\n${rawOutput || "(no output)"}`);
       onActionComplete?.();
     } catch (e) {
-      showNotification("error", e instanceof Error ? e.message : "Action failed");
+      const msg = e instanceof Error ? e.message : "Action failed";
+      showNotification("error", msg);
+      appendLog(`${action} ❌\n${msg}`);
     } finally {
       setLoadingAction(null);
     }
@@ -74,9 +83,11 @@ export function QuickActions({ onActionComplete }: QuickActionsProps) {
       if (!res.ok) throw new Error("Failed to clear log");
 
       showNotification("success", "Activity log cleared successfully");
+      appendLog("clear_activity_log ✅\nActivity log cleared successfully");
       onActionComplete?.();
     } catch {
       showNotification("error", "Failed to clear activity log");
+      appendLog("clear_activity_log ❌\nFailed to clear activity log");
     } finally {
       setLoadingAction(null);
     }

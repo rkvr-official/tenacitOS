@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Settings, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Settings, RefreshCw, Copy, Trash2 } from "lucide-react";
 import { SystemInfo } from "@/components/SystemInfo";
 import { IntegrationStatus } from "@/components/IntegrationStatus";
 import { QuickActions } from "@/components/QuickActions";
@@ -40,6 +40,7 @@ export default function SettingsPage() {
   const [systemData, setSystemData] = useState<SystemData | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [actionLogs, setActionLogs] = useState<string[]>([]);
 
   const fetchSystemData = async () => {
     try {
@@ -64,6 +65,20 @@ export default function SettingsPage() {
   const handleRefresh = () => {
     setLoading(true);
     fetchSystemData();
+  };
+
+  const appendLog = (entry: string) => {
+    setActionLogs((prev) => [entry, ...prev].slice(0, 200));
+  };
+
+  const logsText = useMemo(() => actionLogs.join("\n\n"), [actionLogs]);
+
+  const copyLogs = async () => {
+    try {
+      await navigator.clipboard.writeText(logsText || "(no logs yet)");
+    } catch (error) {
+      console.error("Failed to copy logs", error);
+    }
   };
 
   return (
@@ -119,8 +134,30 @@ export default function SettingsPage() {
 
         {/* Quick Actions */}
         <div>
-          <QuickActions onActionComplete={handleRefresh} />
+          <QuickActions onActionComplete={handleRefresh} onActionLog={appendLog} />
         </div>
+      </div>
+
+      {/* Action Console */}
+      <div className="mt-6 p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Task Output Console</h3>
+          <div className="flex gap-2">
+            <button onClick={copyLogs} className="px-2 py-1 rounded border text-xs flex items-center gap-1" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+              <Copy className="w-3 h-3" /> Copy
+            </button>
+            <button onClick={() => setActionLogs([])} className="px-2 py-1 rounded border text-xs flex items-center gap-1" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+              <Trash2 className="w-3 h-3" /> Clear
+            </button>
+          </div>
+        </div>
+        <textarea
+          readOnly
+          value={logsText}
+          placeholder="Run quick actions to see output logs here..."
+          className="w-full h-56 p-3 rounded-lg font-mono text-xs"
+          style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+        />
       </div>
 
       {/* Footer Info */}
