@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Calendar, PieChart } from "lucide-react";
-import { LineChart, Line, BarChart, Bar, PieChart as RePieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { LineChart, Line, BarChart, Bar, PieChart as RePieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart, Scatter } from "recharts";
 
 interface CostData {
   updatedAt?: string;
@@ -332,6 +332,20 @@ export default function CostsPage() {
               <Bar dataKey="input" fill="#60A5FA" name="Input $/1M" />
               <Bar dataKey="output" fill="#F59E0B" name="Output $/1M" />
             </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+      {deployment === "cloud" && (
+        <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+          <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Cost vs Quality Frontier (Most Used)</h3>
+          <ResponsiveContainer width="100%" height={280}>
+            <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis type="number" dataKey="cost" name="Total $/1M" stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
+              <YAxis type="number" dataKey="quality" name="Quality" stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
+              <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(v:any, n:any, p:any)=> n==='cost'?`$${v}`:v} labelFormatter={(_,payload:any)=>payload?.[0]?.payload?.name || ''} />
+              <Scatter name="Models" fill="#FF3B30" data={pricingRows.slice(0,12).map((r)=>({ name:r.model.split('/').pop(), cost:Number(((r.inputPerM||0)+(r.outputPerM||0)).toFixed(3)), quality: Number((((r.benchmarks?.intelligence||0)+(r.benchmarks?.coding||0)+(r.benchmarks?.math||0))/3).toFixed(2)) }))} />
+            </ScatterChart>
           </ResponsiveContainer>
         </div>
       )}
