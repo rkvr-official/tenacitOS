@@ -1,9 +1,10 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Group, Vector3 } from 'three';
 import VoxelAvatar from './VoxelAvatar';
+import NameTag from './NameTag';
 import type { AgentConfig, AgentState } from './agentsConfig';
 
 interface Obstacle {
@@ -25,157 +26,163 @@ interface MovingAvatarProps {
   onPositionUpdate: (id: string, pos: Vector3) => void;
 }
 
-export default function MovingAvatar({ 
-  agent, 
-  state, 
-  officeBounds, 
-  obstacles, 
+const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
+export default function MovingAvatar({
+  agent,
+  state,
+  officeBounds,
+  obstacles,
   otherAvatarPositions,
-  onPositionUpdate 
+  onPositionUpdate,
 }: MovingAvatarProps) {
   const groupRef = useRef<Group>(null);
-  
-  // Posición inicial completamente aleatoria SIN colisiones
+
+  // Desk + chair anchors (must match AgentDesk chair placement)
+  const anchors = useMemo(() => {
+    const desk = new Vector3(agent.position[0], 0.6, agent.position[2]);
+
+    // In AgentDesk:
+    //  <group scale={2}><VoxelChair position={[0,0,0.9]} ... /></group>
+    // So chair world offset ~= z + 0.9*2 = +1.8
+    const chair = new Vector3(agent.position[0], 0.6, agent.position[2] + 1.8);
+
+    // Small wander area around the working station (keeps agents near their desk)
+    const idleCenter = chair.clone().add(new Vector3(0, 0, 0.4));
+
+    return { desk, chair, idleCenter };
+  }, [agent.position]);
+
+  // ---- Collision helpers ----
+  const isPositionFree = (pos: Vector3): boolean => {
+    const minDistanceToObstacle = 1.2; // distance to furniture
+    const minDistanceToAvatar = 1.0; // distance between avatars
+
+    for (const obstacle of obstacles) {
+      const distance = pos.distanceTo(obstacle.position);
+      if (distance < obstacle.radius + minDistanceToObstacle) return false;
+    }
+
+    for (const [otherId, otherPos] of otherAvatarPositions.entries()) {
+      if (otherId === agent.id) continue;
+      const distance = pos.distanceTo(otherPos);
+      if (distance < minDistanceToAvatar) return false;
+    }
+
+    return true;
+  };
+
+  const randomAround = (center: Vector3, radius: number) => {
+    const angle = Math.random() * Math.PI * 2;
+    const r = Math.random() * radius;
+    const x = center.x + Math.cos(angle) * r;
+    const z = center.z + Math.sin(angle) * r;
+    return new Vector3(
+      clamp(x, officeBounds.minX, officeBounds.maxX),
+      0.6,
+      clamp(z, officeBounds.minZ, officeBounds.maxZ)
+    );
+  };
+
+  // ---- Initial position: spawn at the agent's station (NOT random across the office) ----
   const [initialPos] = useState(() => {
-    let pos: Vector3;
-    let attempts = 0;
-    const minDistanceToObstacle = 1.5;
+    // Working/thinking should start seated, otherwise start near their chair
+    const base = state.status === 'working' || state.status === 'thinking' ? anchors.chair : anchors.idleCenter;
+    let pos = base.clone();
 
-    // Intentar hasta 50 veces encontrar una posición sin colisión
-    do {
-      const x = Math.random() * (officeBounds.maxX - officeBounds.minX - 2) + officeBounds.minX + 1;
-      const z = Math.random() * (officeBounds.maxZ - officeBounds.minZ - 2) + officeBounds.minZ + 1;
-      pos = new Vector3(x, 0.6, z);
-
-      // Verificar colisión con obstáculos
-      let isFree = true;
-      for (const obstacle of obstacles) {
-        const distance = pos.distanceTo(obstacle.position);
-        if (distance < obstacle.radius + minDistanceToObstacle) {
-          isFree = false;
-          break;
-        }
-      }
-
-      if (isFree) break;
-      attempts++;
-    } while (attempts < 50);
+    // Nudge if colliding
+    for (let i = 0; i < 10; i++) {
+      if (isPositionFree(pos)) break;
+      pos = randomAround(base, 1.0);
+    }
 
     return pos;
   });
 
   const [targetPos, setTargetPos] = useState(initialPos);
   const currentPos = useRef(initialPos.clone());
-  
+
   // Notificar posición inicial
   useEffect(() => {
     onPositionUpdate(agent.id, initialPos.clone());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Verificar si una posición está libre (sin colisiones)
-  const isPositionFree = (pos: Vector3): boolean => {
-    const minDistanceToObstacle = 1.5; // distancia mínima a muebles
-    const minDistanceToAvatar = 1.2; // distancia mínima entre avatares
-
-    // Verificar colisión con obstáculos
-    for (const obstacle of obstacles) {
-      const distance = pos.distanceTo(obstacle.position);
-      if (distance < obstacle.radius + minDistanceToObstacle) {
-        return false;
-      }
-    }
-
-    // Verificar colisión con otros avatares
-    for (const [otherId, otherPos] of otherAvatarPositions.entries()) {
-      if (otherId === agent.id) continue;
-      const distance = pos.distanceTo(otherPos);
-      if (distance < minDistanceToAvatar) {
-        return false;
-      }
-    }
-
-    return true;
-  };
-
-  // Cambiar objetivo cada 5-10 segundos (depende del estado)
+  // ---- State-driven anchoring: working/thinking snap to chair ----
   useEffect(() => {
-    const getNewTarget = () => {
+    if (state.status === 'working' || state.status === 'thinking') {
+      setTargetPos(anchors.chair.clone());
+      currentPos.current.copy(anchors.chair);
+      if (groupRef.current) {
+        groupRef.current.position.copy(anchors.chair);
+        groupRef.current.rotation.y = Math.PI; // face the desk
+      }
+      onPositionUpdate(agent.id, anchors.chair.clone());
+    }
+  }, [state.status, anchors.chair, agent.id, onPositionUpdate]);
+
+  // ---- Pick new wander targets (only when not working/thinking) ----
+  useEffect(() => {
+    if (state.status === 'working' || state.status === 'thinking') return;
+
+    const pickTarget = () => {
+      const radius = state.status === 'idle' ? 1.2 : 0.6; // error moves less
+      const center = anchors.idleCenter;
+
       let attempts = 0;
       let newPos: Vector3;
-
-      // Intentar encontrar una posición libre (máximo 20 intentos)
       do {
-        const x = Math.random() * (officeBounds.maxX - officeBounds.minX) + officeBounds.minX;
-        const z = Math.random() * (officeBounds.maxZ - officeBounds.minZ) + officeBounds.minZ;
-        newPos = new Vector3(x, 0.6, z);
+        newPos = randomAround(center, radius);
         attempts++;
       } while (!isPositionFree(newPos) && attempts < 20);
 
-      if (attempts < 20) {
-        setTargetPos(newPos);
-      }
+      if (attempts < 20) setTargetPos(newPos);
     };
 
-    // Idle: moverse más frecuentemente
-    // Working: moverse menos
-    // Thinking: moverse muy poco
-    // Error: quedarse quieto
-    const getInterval = () => {
+    const intervalMs = (() => {
       switch (state.status) {
         case 'idle':
-          return 3000 + Math.random() * 3000; // 3-6s
-        case 'working':
-          return 8000 + Math.random() * 7000; // 8-15s
-        case 'thinking':
-          return 15000 + Math.random() * 10000; // 15-25s
+          return 4500 + Math.random() * 3500; // 4.5-8s
         case 'error':
-          return 30000; // casi quieto
+          return 12000 + Math.random() * 8000; // 12-20s
         default:
-          return 10000;
+          return 9000;
       }
-    };
+    })();
 
-    // Primer objetivo después de montar
-    const timeout = setTimeout(getNewTarget, 1000);
-    const interval = setInterval(getNewTarget, getInterval());
-    
+    const t = setTimeout(pickTarget, 800);
+    const i = setInterval(pickTarget, intervalMs);
     return () => {
-      clearTimeout(timeout);
-      clearInterval(interval);
+      clearTimeout(t);
+      clearInterval(i);
     };
-  }, [state.status]);
+  }, [state.status, anchors.idleCenter, officeBounds.minX, officeBounds.maxX, officeBounds.minZ, officeBounds.maxZ]);
 
-  // Mover suavemente hacia el objetivo
+  // ---- Move smoothly towards target ----
   useFrame((frameState, delta) => {
     if (!groupRef.current) return;
 
-    const speed = state.status === 'idle' ? 1.5 : 0.8; // idle se mueve más rápido
+    // If seated, stay put
+    if (state.status === 'working' || state.status === 'thinking') {
+      groupRef.current.position.copy(anchors.chair);
+      groupRef.current.rotation.y = Math.PI;
+      return;
+    }
+
+    const speed = state.status === 'idle' ? 1.0 : 0.5;
     const moveSpeed = delta * speed;
 
-    // Calcular nueva posición
     const newPos = currentPos.current.clone().lerp(targetPos, moveSpeed);
 
-    // Verificar si la nueva posición es válida
     if (isPositionFree(newPos)) {
       currentPos.current.copy(newPos);
       groupRef.current.position.copy(currentPos.current);
-
-      // Notificar la nueva posición
       onPositionUpdate(agent.id, currentPos.current.clone());
 
-      // Rotar hacia la dirección del movimiento
       const direction = new Vector3().subVectors(targetPos, currentPos.current);
-      if (direction.length() > 0.1) {
+      if (direction.length() > 0.05) {
         const angle = Math.atan2(direction.x, direction.z);
         groupRef.current.rotation.y = angle;
-      }
-    } else {
-      // Si hay colisión, buscar nuevo objetivo
-      const x = Math.random() * (officeBounds.maxX - officeBounds.minX) + officeBounds.minX;
-      const z = Math.random() * (officeBounds.maxZ - officeBounds.minZ) + officeBounds.minZ;
-      const newTarget = new Vector3(x, 0.6, z);
-      if (isPositionFree(newTarget)) {
-        setTargetPos(newTarget);
       }
     }
   });
@@ -189,6 +196,7 @@ export default function MovingAvatar({
         isThinking={state.status === 'thinking'}
         isError={state.status === 'error'}
       />
+      <NameTag text={`${agent.emoji} ${agent.name}`} offset={[0, 1.05, 0]} />
     </group>
   );
 }

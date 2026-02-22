@@ -26,13 +26,28 @@ export default function Office3D() {
   const [avatarPositions, setAvatarPositions] = useState<Map<string, any>>(new Map());
   
   // Mock data - TODO: Replace with real API data
-  const [agentStates] = useState<Record<string, AgentState>>({
-    main: { id: 'main', status: 'working', currentTask: 'Procesando emails', model: 'opus', tokensPerHour: 15000, tasksInQueue: 3, uptime: 12 },
-    academic: { id: 'academic', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 8 },
-    studio: { id: 'studio', status: 'thinking', currentTask: 'Generando guión YouTube', model: 'opus', tokensPerHour: 8000, tasksInQueue: 1, uptime: 5 },
-    linkedin: { id: 'linkedin', status: 'working', currentTask: 'Redactando post', model: 'sonnet', tokensPerHour: 5000, tasksInQueue: 2, uptime: 10 },
-    social: { id: 'social', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 7 },
-    infra: { id: 'infra', status: 'error', currentTask: 'Failed deployment', model: 'haiku', tokensPerHour: 1000, tasksInQueue: 0, uptime: 15 },
+  // IMPORTANT: keys must match AGENTS[].id to avoid undefined states / position mismatches.
+  const [agentStates] = useState<Record<string, AgentState>>(() => {
+    const statuses: AgentState['status'][] = ['working', 'idle', 'thinking', 'working', 'idle', 'error'];
+    return Object.fromEntries(
+      AGENTS.map((a, idx) => [
+        a.id,
+        {
+          id: a.id,
+          status: statuses[idx % statuses.length],
+          currentTask:
+            statuses[idx % statuses.length] === 'working'
+              ? 'Running tasks…'
+              : statuses[idx % statuses.length] === 'thinking'
+                ? 'Reasoning…'
+                : undefined,
+          model: ['opus', 'sonnet', 'haiku'][idx % 3],
+          tokensPerHour: statuses[idx % statuses.length] === 'idle' ? 0 : 5000 + idx * 1000,
+          tasksInQueue: statuses[idx % statuses.length] === 'idle' ? 0 : 1 + (idx % 3),
+          uptime: 5 + idx,
+        } satisfies AgentState,
+      ])
+    );
   });
 
   const handleDeskClick = (agentId: string) => {
