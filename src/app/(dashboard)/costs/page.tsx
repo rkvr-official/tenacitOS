@@ -366,8 +366,14 @@ export default function CostsPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis type="number" dataKey="cost" name="Total $/1M" label={{ value: 'Cost ($ per 1M input+output)', position: 'insideBottom', offset: -2, fill: '#fff' }} stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
               <YAxis type="number" dataKey="quality" name="Quality" label={{ value: 'Quality score (bench/ranking)', angle: -90, position: 'insideLeft', fill: '#fff' }} stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
-              <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} formatter={(v:any, n:any, p:any)=> n==='cost'?`$${v}`:v} labelFormatter={(_,payload:any)=>payload?.[0]?.payload?.name || ''} />
-              <Scatter name="Models" fill="#FF3B30" data={pricingRows.slice(0,12).map((r)=>{ const avgBench=((r.benchmarks?.intelligence||0)+(r.benchmarks?.coding||0)+(r.benchmarks?.math||0))/3; const q=avgBench>0?avgBench:((r.ranking?.complex==="high"?3:2)+(r.ranking?.research==="high"?3:2)+(r.ranking?.thinking==="high"?3:2))/3; return ({ name:r.model.split('/').pop(), cost:Number(((r.inputPerM||0)+(r.outputPerM||0)).toFixed(3)), quality:Number(q.toFixed(2)) }); })} />
+              <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} formatter={(v:any, n:any, item:any)=> {
+                const nm=item?.payload?.name || '';
+                if (n === 'cost') return [`$${v}`, `Cost · ${nm}`];
+                return [v, `Quality · ${nm}`];
+              }} />
+              <Scatter name="Models" fill="#FF3B30" data={pricingRows.slice(0,12).map((r)=>{ const avgBench=((r.benchmarks?.intelligence||0)+(r.benchmarks?.coding||0)+(r.benchmarks?.math||0))/3; const q=avgBench>0?avgBench:((r.ranking?.complex==="high"?3:2)+(r.ranking?.research==="high"?3:2)+(r.ranking?.thinking==="high"?3:2))/3; return ({ name:r.model.split('/').pop(), cost:Number(((r.inputPerM||0)+(r.outputPerM||0)).toFixed(3)), quality:Number(q.toFixed(2)) }); })}>
+                <LabelList dataKey="name" position="top" fill="#fff" fontSize={10} />
+              </Scatter>
             </ScatterChart>
           </ResponsiveContainer>
         </div>
@@ -435,7 +441,9 @@ export default function CostsPage() {
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.agentCount}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.inputPerM == null ? "N/A" : `$${row.inputPerM}`}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.outputPerM == null ? "N/A" : `$${row.outputPerM}`}</td>
-                                    <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.tpsCloud}/{row.tpsLocal}</td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.inputPerM != null && row.outputPerM != null ? `$${(((row.inputPerM + row.outputPerM) / 2) / 1_000_000).toExponential(2)}` : "N/A"}</td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{bestTask(row)}</td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.tpsCloud}/{row.tpsLocal}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.ranking?.perfPrice ?? '-'}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{`${row.benchmarks?.intelligence ?? "-"}/${row.benchmarks?.coding ?? "-"}/${row.benchmarks?.math ?? "-"}`}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{`${row.ranking?.complex || '-'} / ${row.ranking?.research || '-'} / ${row.ranking?.thinking || '-'}`}</td>
