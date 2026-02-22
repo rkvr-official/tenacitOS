@@ -128,12 +128,27 @@ export default function CostsPage() {
     return score(b.ranking.thinking)-score(a.ranking.thinking);
   });
   const bestTask = (r:any) => {
+    const id = String(r?.model || '').toLowerCase();
     const b = r?.benchmarks || {};
-    if ((b.coding||0) >= (b.intelligence||0) && (b.coding||0) >= (b.math||0)) return "Coding";
-    if ((b.math||0) >= (b.intelligence||0) && (b.math||0) >= (b.coding||0)) return "Math/Reasoning";
-    if ((b.intelligence||0) > 0) return "General intelligence";
-    if (r?.ranking?.thinking === 'high') return 'Complex planning';
-    return "General tasks";
+
+    // Strong explicit model-family priors first
+    if (id.includes('deep-research') || id.includes('search-preview')) return 'Research';
+    if (id.includes('codex') || id.includes('computer-use')) return 'Tool calling / coding';
+    if (id.includes('o1') || id.includes('o3') || id.includes('o4') || id.includes('pro')) return 'Thinking / reasoning';
+    if (id.includes('mini') || id.includes('nano') || id.includes('flash')) return 'Fast low-cost tasks';
+
+    // Benchmark-driven fallback
+    const intel = Number(b.intelligence || 0);
+    const coding = Number(b.coding || 0);
+    const math = Number(b.math || 0);
+
+    if (coding > intel * 1.05 && coding > math * 1.05) return 'Coding';
+    if (math > intel * 1.05 && math >= coding) return 'Reasoning / math';
+    if (intel > 0) return 'General intelligence';
+
+    if (r?.ranking?.thinking === 'high') return 'Thinking / reasoning';
+    if (r?.ranking?.research === 'high') return 'Research';
+    return 'General tasks';
   };
   const cheapest = [...pricingRows].sort((a,b)=>((a.inputPerM||999)+(a.outputPerM||999))-((b.inputPerM||999)+(b.outputPerM||999)))[0];
 
