@@ -50,8 +50,11 @@ export default function MovingAvatar({
   const [targetPos, setTargetPos] = useState(initialPos);
   const currentPos = useRef(initialPos.clone());
   
-  // Notificar posición inicial
+  // Initialize mesh position + notify initial position
   useEffect(() => {
+    if (groupRef.current) {
+      groupRef.current.position.copy(initialPos);
+    }
     onPositionUpdate(agent.id, initialPos.clone());
   }, []);
 
@@ -62,6 +65,12 @@ export default function MovingAvatar({
 
     // Verificar colisión con obstáculos
     for (const obstacle of obstacles) {
+      // Allow the avatar to be close to its own desk/chair area.
+      const isOwnDesk =
+        Math.abs(obstacle.position.x - agent.position[0]) < 0.01 &&
+        Math.abs(obstacle.position.z - agent.position[2]) < 0.01;
+      if (isOwnDesk) continue;
+
       const distance = pos.distanceTo(obstacle.position);
       if (distance < obstacle.radius + minDistanceToObstacle) {
         return false;
@@ -185,7 +194,7 @@ export default function MovingAvatar({
   });
 
   return (
-    <group ref={groupRef} scale={3}>
+    <group ref={groupRef} scale={3} position={[initialPos.x, initialPos.y, initialPos.z]}>
       <VoxelAvatar
         agent={agent}
         position={[0, 0, 0]}
