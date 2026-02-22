@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { execSync } from "child_process";
 import { readFileSync, statSync } from "fs";
 import { join } from "path";
 
@@ -50,91 +51,82 @@ const AGENT_CONFIG = {
   },
 };
 
-interface AgentSession {
-  agentId: string;
-  sessionId: string;
-  label?: string;
-  lastActivity?: string;
-  createdAt?: string;
-}
+type AgentOfficeStatus = {
+  status: "working" | "thinking" | "idle" | "error" | "sleeping";
+  currentTask: string;
+  lastSeen: number;
+};
 
-async function getAgentStatusFromGateway(): Promise<
-  Record<string, { isActive: boolean; currentTask: string; lastSeen: number }>
-> {
-  try {
-    const configPath = (process.env.OPENCLAW_DIR || "/root/.openclaw") + "/openclaw.json";
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    const gatewayToken = config.gateway?.auth?.token;
+function computeStatusFromSessions(sessions: Array<any>): Record<string, AgentOfficeStatus> {
+  const byAgent: Record<string, any> = {};
 
-    if (!gatewayToken) {
-      console.warn("No gateway token found");
-      return {};
+  for (const s of sessions) {
+    const agentId = s.agentId;
+    if (!agentId) continue;
+
+    // Keep most recently updated session per agent
+    if (!byAgent[agentId] || (s.updatedAt ?? 0) > (byAgent[agentId].updatedAt ?? 0)) {
+      byAgent[agentId] = s;
     }
-
-    // Try to fetch sessions from gateway
-    const response = await fetch("http://localhost:18789/api/sessions", {
-      headers: {
-        Authorization: `Bearer ${gatewayToken}`,
-      },
-      signal: AbortSignal.timeout(2000), // 2s timeout
-    });
-
-    if (!response.ok) {
-      console.warn("Gateway returned non-OK status:", response.status);
-      return {};
-    }
-
-    // Verify Content-Type before parsing JSON
-    const contentType = response.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) {
-      console.warn("Gateway returned non-JSON response:", contentType);
-      return {};
-    }
-
-    const sessions = (await response.json()) as AgentSession[];
-    const agentStatus: Record<
-      string,
-      { isActive: boolean; currentTask: string; lastSeen: number }
-    > = {};
-
-    for (const session of sessions) {
-      if (!session.agentId) continue;
-
-      const lastActivity = session.lastActivity
-        ? new Date(session.lastActivity).getTime()
-        : 0;
-      const now = Date.now();
-      const minutesAgo = (now - lastActivity) / 1000 / 60;
-
-      let status = "SLEEPING";
-      let currentTask = "zzZ...";
-
-      if (minutesAgo < 5) {
-        status = "ACTIVE";
-        currentTask = session.label || "Working on task...";
-      } else if (minutesAgo < 30) {
-        status = "IDLE";
-        currentTask = session.label || "Idle...";
-      }
-
-      // Keep most recent activity per agent
-      if (
-        !agentStatus[session.agentId] ||
-        lastActivity > agentStatus[session.agentId].lastSeen
-      ) {
-        agentStatus[session.agentId] = {
-          isActive: status === "ACTIVE",
-          currentTask: `${status}: ${currentTask}`,
-          lastSeen: lastActivity,
-        };
-      }
-    }
-
-    return agentStatus;
-  } catch (error) {
-    console.warn("Failed to fetch from gateway:", error);
-    return {};
   }
+
+  const now = Date.now();
+  const out: Record<string, AgentOfficeStatus> = {};
+
+  for (const [agentId, s] of Object.entries(byAgent)) {
+    const updatedAt = typeof s.updatedAt === "number" ? s.updatedAt : 0;
+    const ageMs = now - updatedAt;
+
+    // ERROR: last run aborted
+    if (s.abortedLastRun) {
+      out[agentId] = {
+        status: "error",
+        currentTask: "ERROR: last run aborted",
+        lastSeen: updatedAt,
+      };
+      continue;
+    }
+
+    // THINKING: task just arrived / planning phase
+    // Heuristic: very recent update + very low output tokens.
+    const outputTokens = typeof s.outputTokens === "number" ? s.outputTokens : 0;
+    if (ageMs < 2 * 60 * 1000 && outputTokens < 200) {
+      out[agentId] = {
+        status: "thinking",
+        currentTask: "THINKING: planning",
+        lastSeen: updatedAt,
+      };
+      continue;
+    }
+
+    // WORKING: recently active
+    if (ageMs < 10 * 60 * 1000) {
+      out[agentId] = {
+        status: "working",
+        currentTask: "WORKING",
+        lastSeen: updatedAt,
+      };
+      continue;
+    }
+
+    // IDLE: somewhat recent
+    if (ageMs < 60 * 60 * 1000) {
+      out[agentId] = {
+        status: "idle",
+        currentTask: "IDLE",
+        lastSeen: updatedAt,
+      };
+      continue;
+    }
+
+    out[agentId] = {
+      status: "sleeping",
+      currentTask: "SLEEPING: zzZ...",
+      lastSeen: updatedAt,
+    };
+  }
+
+  return out;
 }
 
 function resolveWorkspace(config: any, agentId: string, agentConfig: any): string {
@@ -194,8 +186,21 @@ export async function GET() {
     const configPath = (process.env.OPENCLAW_DIR || "/root/.openclaw") + "/openclaw.json";
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
 
-    // Try gateway first, fallback to file-based
-    const gatewayStatus = await getAgentStatusFromGateway();
+    // Sessions signal (best-effort): uses OpenClaw's session index.
+    // Falls back to memory file timestamps when session info is missing.
+    let sessionStatus: Record<string, AgentOfficeStatus> = {};
+    try {
+      const raw = execSync("openclaw sessions list --json", {
+        encoding: "utf8",
+        timeout: 4000,
+        env: process.env,
+      });
+      const parsed = JSON.parse(raw);
+      const recent = (parsed?.recent ?? parsed?.sessions?.recent ?? parsed) as Array<any>;
+      if (Array.isArray(recent)) sessionStatus = computeStatusFromSessions(recent);
+    } catch {
+      // ignore
+    }
 
     const agents = config.agents.list.map((agent: any) => {
       const agentInfo = AGENT_CONFIG[agent.id as keyof typeof AGENT_CONFIG] || {
@@ -205,11 +210,16 @@ export async function GET() {
         role: "Agent",
       };
 
-      // Get status from gateway, or fallback to files
-      let status = gatewayStatus[agent.id];
+      // Get status from sessions, or fallback to files
+      let status = sessionStatus[agent.id];
       if (!status) {
         const workspace = resolveWorkspace(config, agent.id, agent);
-        status = getAgentStatusFromFiles(workspace);
+        const fileStatus = getAgentStatusFromFiles(workspace);
+        status = {
+          status: fileStatus.isActive ? "working" : "sleeping",
+          currentTask: fileStatus.currentTask,
+          lastSeen: fileStatus.lastSeen,
+        };
       }
 
       // Map freelance -> devclaw for canvas compatibility
@@ -222,7 +232,8 @@ export async function GET() {
         color: agentInfo.color,
         role: agentInfo.role,
         currentTask: status.currentTask,
-        isActive: status.isActive,
+        status: status.status,
+        lastSeen: status.lastSeen,
       };
     });
 

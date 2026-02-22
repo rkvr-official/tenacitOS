@@ -49,7 +49,7 @@ export default function Office3D() {
         setLoadError(null);
         const res = await fetch('/api/office', { cache: 'no-store' });
         if (!res.ok) throw new Error(`office_fetch_failed_${res.status}`);
-        const data = (await res.json()) as { agents: Array<{ id: string; name: string; emoji: string; color: string; role?: string; currentTask?: string; isActive?: boolean }> };
+        const data = (await res.json()) as { agents: Array<{ id: string; name: string; emoji: string; color: string; role?: string; currentTask?: string; status?: 'working'|'thinking'|'idle'|'error'|'sleeping' }> };
 
         const nextAgents: AgentConfig[] = (data.agents ?? []).map((a, idx) => ({
           id: a.id,
@@ -62,9 +62,10 @@ export default function Office3D() {
 
         const nextStates: Record<string, AgentState> = {};
         for (const a of data.agents ?? []) {
+          const mapped = a.status === 'working' || a.status === 'thinking' || a.status === 'idle' || a.status === 'error' ? a.status : 'idle';
           nextStates[a.id] = {
             id: a.id,
-            status: a.isActive ? 'working' : 'idle',
+            status: mapped,
             model: undefined,
             currentTask: a.currentTask,
           };
