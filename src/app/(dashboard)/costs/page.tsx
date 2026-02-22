@@ -16,7 +16,7 @@ interface CostData {
   byModel: Array<{ model: string; cost: number; tokens: number }>;
   daily: Array<{ date: string; cost: number; input: number; output: number }>;
   hourly: Array<{ hour: string; cost: number }>;
-  modelPricing?: Array<{ model: string; inputPerM: number | null; outputPerM: number | null; localEstPerM: number; source: string; local: boolean; available: boolean; tpsCloud: number; tpsLocal: number; agents: string[] }>;
+  modelPricing?: Array<{ model: string; inputPerM: number | null; outputPerM: number | null; localEstPerM: number; source: string; local: boolean; available: boolean; tpsCloud: number; tpsLocal: number; agents: string[]; ranking: { perfPrice: number; complex: string; research: string; thinking: string; speed: number } }>;
 }
 
 const COLORS = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#00C7BE', '#30B0C7', '#32ADE6', '#007AFF', '#5856D6', '#AF52DE', '#FF2D55'];
@@ -137,6 +137,15 @@ export default function CostsPage() {
         </div>
       </div>
 
+
+      {deployment === "local" && (
+        <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+          <h3 className="text-md font-semibold" style={{ color: "var(--text-primary)" }}>Local Models Focus</h3>
+          <p style={{ color: "var(--text-secondary)", fontSize: 12 }}>
+            Showing all available local models from OpenClaw models list, with current agent usage and VPS-based 1M token estimates.
+          </p>
+        </div>
+      )}
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Today */}
@@ -348,6 +357,8 @@ export default function CostsPage() {
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Output</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Local Est</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Tok/s (cloud/local)</th>
+                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Perf/$</th>
+                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Complex/Research/Thinking</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Agents</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Source</th>
               </tr>
@@ -360,6 +371,8 @@ export default function CostsPage() {
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.outputPerM == null ? "N/A" : `$${row.outputPerM}`}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>${row.localEstPerM}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.tpsCloud}/{row.tpsLocal}</td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.ranking?.perfPrice ?? '-'}</td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{`${row.ranking?.complex || '-'} / ${row.ranking?.research || '-'} / ${row.ranking?.thinking || '-'}`}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{(row.agents || []).join(", ") || "-"}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.source}</td>
                 </tr>

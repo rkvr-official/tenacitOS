@@ -46,20 +46,45 @@ export interface UsageSnapshot {
  */
 export async function getOpenClawSessions(): Promise<SessionData[]> {
   try {
-    const { stdout } = await execAsync("openclaw status --json");
-    const status = JSON.parse(stdout);
-    const paths: string[] = Array.isArray(status?.sessions?.paths) ? status.sessions.paths : [];
+    const openclawDir = process.env.OPENCLAW_DIR || "/root/.openclaw";
+    const agentsDir = path.join(openclawDir, "agents");
+    const paths: string[] = [];
+
+    if (fs.existsSync(agentsDir)) {
+      for (const a of fs.readdirSync(agentsDir)) {
+        const p = path.join(agentsDir, a, "sessions", "sessions.json");
+        if (fs.existsSync(p)) paths.push(p);
+      }
+    }
+
     const sessions: SessionData[] = [];
 
-    for (const p of paths) {
-      if (!fs.existsSync(p)) continue;
-      const obj = JSON.parse(fs.readFileSync(p, "utf-8"));
+    for (const pth of paths) {
+      const obj = JSON.parse(fs.readFileSync(pth, "utf-8"));
       for (const [key, meta] of Object.entries<any>(obj || {})) {
+        const agentId = agentIdFromKey(key);
+        const sessionId = meta?.sessionId || "";
+        let model = normalizeModelId(meta?.model || "unknown");
+
+        if ((model === "unknown" || !model) && sessionId) {
+          try {
+            const sessionFile = path.join(path.dirname(pth), `${sessionId}.jsonl`);
+            if (fs.existsSync(sessionFile)) {
+              const lines = fs.readFileSync(sessionFile, 'utf-8').split("\n");
+              for (const ln of lines) {
+                if (!ln.trim()) continue;
+                const row = JSON.parse(ln);
+                if (row?.type === 'model_change' && row?.modelId) { model = normalizeModelId(row.modelId); break; }
+              }
+            }
+          } catch {}
+        }
+
         sessions.push({
-          agentId: agentIdFromKey(key),
+          agentId,
           sessionKey: key,
-          sessionId: meta?.sessionId || "",
-          model: normalizeModelId(meta?.model || "unknown"),
+          sessionId,
+          model,
           inputTokens: meta?.inputTokens || 0,
           outputTokens: meta?.outputTokens || 0,
           totalTokens: meta?.totalTokens || 0,

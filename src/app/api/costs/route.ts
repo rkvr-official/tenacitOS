@@ -38,6 +38,16 @@ function providerFallbackPricing(model: string): { input: number; output: number
   return null;
 }
 
+function modelRankings(model: string, input: number | null, output: number | null, tpsCloud: number) {
+  const cost = (input || 3) + (output || 15);
+  const perfPrice = Number((1000 / Math.max(cost, 0.1)).toFixed(1));
+  const m = model.toLowerCase();
+  const complex = m.includes('pro') || m.includes('opus') || m.includes('o1') || m.includes('o3') || m.includes('o4') ? 'high' : 'medium';
+  const research = m.includes('deep-research') || m.includes('pro') ? 'high' : 'medium';
+  const thinking = m.includes('o1') || m.includes('o3') || m.includes('o4') || m.includes('codex') ? 'high' : 'medium';
+  return { perfPrice, complex, research, thinking, speed: tpsCloud };
+}
+
 function getOpenclawModelsMap(): Map<string, { local: boolean; available: boolean }> {
   const map = new Map<string, { local: boolean; available: boolean }>();
   try {
@@ -61,6 +71,12 @@ function getSelectedModelsWithPricing(db: ReturnType<typeof getDatabase>, deploy
     for (const m of Object.keys(cfg?.agents?.defaults?.models || {})) models.add(m);
 
     const modelMap = getOpenclawModelsMap();
+
+    if (deployment === "local" || deployment === "all") {
+      for (const [key, info] of modelMap.entries()) {
+        if (info.local) models.add(key);
+      }
+    }
 
     const byModelAgents = new Map<string, string[]>();
     if (db) {

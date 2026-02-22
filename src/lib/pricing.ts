@@ -114,11 +114,15 @@ export function calculateCost(
   );
 
   if (!pricing) {
-    console.warn(`Unknown model: ${modelId}, using default pricing`);
-    // Default to Sonnet pricing if unknown
-    return (
-      (inputTokens / 1_000_000) * 3.0 + (outputTokens / 1_000_000) * 15.0
-    );
+    const m = (modelId || '').toLowerCase();
+    let input = 3.0;
+    let output = 15.0;
+    if (m.startsWith('google/')) { input = 0.35; output = 1.5; }
+    else if (m.startsWith('anthropic/')) { input = 3.0; output = 15.0; }
+    else if (m.startsWith('openrouter/')) { input = 0.5; output = 2.0; }
+    else if (m.startsWith('openai/') || m.startsWith('openai-codex/')) { input = 3.0; output = 15.0; }
+    else console.warn(`Unknown model: ${modelId}, using default pricing`);
+    return (inputTokens / 1_000_000) * input + (outputTokens / 1_000_000) * output;
   }
 
   const inputCost = (inputTokens / 1_000_000) * pricing.inputPricePerMillion;
@@ -169,5 +173,19 @@ export function normalizeModelId(modelId: string): string {
     "gpt-5.3-codex": "openai/gpt-5.3-codex",
   };
 
-  return aliasMap[modelId] || modelId;
+
+  if (aliasMap[modelId]) return aliasMap[modelId];
+
+  // Heuristic normalization for short ids
+  const lower = (modelId || '').toLowerCase();
+  if (!modelId.includes('/')) {
+    if (lower.startsWith('gpt-') || lower.startsWith('o1') || lower.startsWith('o3') || lower.startsWith('o4')) {
+      return `openai/${modelId}`;
+    }
+    if (lower.startsWith('gemini-')) {
+      return `google/${modelId}`;
+    }
+  }
+
+  return modelId;
 }
