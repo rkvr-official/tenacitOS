@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Calendar, PieChart } from "lucide-react";
-import { LineChart, Line, BarChart, Bar, PieChart as RePieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart, Scatter } from "recharts";
+import { LineChart, Line, BarChart, Bar, PieChart as RePieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart, Scatter, LabelList } from "recharts";
 
 interface CostData {
   updatedAt?: string;
@@ -127,6 +127,14 @@ export default function CostsPage() {
     const score=(x:string)=>x==="high"?3:x==="medium"?2:1;
     return score(b.ranking.thinking)-score(a.ranking.thinking);
   });
+  const bestTask = (r:any) => {
+    const b = r?.benchmarks || {};
+    if ((b.coding||0) >= (b.intelligence||0) && (b.coding||0) >= (b.math||0)) return "Coding";
+    if ((b.math||0) >= (b.intelligence||0) && (b.math||0) >= (b.coding||0)) return "Math/Reasoning";
+    if ((b.intelligence||0) > 0) return "General intelligence";
+    if (r?.ranking?.thinking === 'high') return 'Complex planning';
+    return "General tasks";
+  };
   const cheapest = [...pricingRows].sort((a,b)=>((a.inputPerM||999)+(a.outputPerM||999))-((b.inputPerM||999)+(b.outputPerM||999)))[0];
 
   return (
@@ -356,8 +364,8 @@ export default function CostsPage() {
           <ResponsiveContainer width="100%" height={280}>
             <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis type="number" dataKey="cost" name="Total $/1M" stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
-              <YAxis type="number" dataKey="quality" name="Quality" stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
+              <XAxis type="number" dataKey="cost" name="Total $/1M" label={{ value: 'Cost ($ per 1M input+output)', position: 'insideBottom', offset: -2, fill: '#fff' }} stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
+              <YAxis type="number" dataKey="quality" name="Quality" label={{ value: 'Quality score (bench/ranking)', angle: -90, position: 'insideLeft', fill: '#fff' }} stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
               <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} formatter={(v:any, n:any, p:any)=> n==='cost'?`$${v}`:v} labelFormatter={(_,payload:any)=>payload?.[0]?.payload?.name || ''} />
               <Scatter name="Models" fill="#FF3B30" data={pricingRows.slice(0,12).map((r)=>{ const avgBench=((r.benchmarks?.intelligence||0)+(r.benchmarks?.coding||0)+(r.benchmarks?.math||0))/3; const q=avgBench>0?avgBench:((r.ranking?.complex==="high"?3:2)+(r.ranking?.research==="high"?3:2)+(r.ranking?.thinking==="high"?3:2))/3; return ({ name:r.model.split('/').pop(), cost:Number(((r.inputPerM||0)+(r.outputPerM||0)).toFixed(3)), quality:Number(q.toFixed(2)) }); })} />
             </ScatterChart>
@@ -409,6 +417,8 @@ export default function CostsPage() {
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Agents #</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Input</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Output</th>
+                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Cost/token (avg)</th>
+                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Best task</th>
                                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Tok/s (cloud/local)</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Perf/$</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Bench (I/C/M)</th>
