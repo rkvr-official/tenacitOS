@@ -38,33 +38,12 @@ export default function MovingAvatar({
   const safeState = state ?? { ...FALLBACK_STATE, id: agent.id };
   const groupRef = useRef<Group>(null);
   
-  // Posición inicial completamente aleatoria SIN colisiones
+  // Initial position: deterministic near the agent's desk.
+  // Random starts were causing avatar pile-ups before otherAvatarPositions is populated.
   const [initialPos] = useState(() => {
-    let pos: Vector3;
-    let attempts = 0;
-    const minDistanceToObstacle = 1.5;
-
-    // Intentar hasta 50 veces encontrar una posición sin colisión
-    do {
-      const x = Math.random() * (officeBounds.maxX - officeBounds.minX - 2) + officeBounds.minX + 1;
-      const z = Math.random() * (officeBounds.maxZ - officeBounds.minZ - 2) + officeBounds.minZ + 1;
-      pos = new Vector3(x, 0.6, z);
-
-      // Verificar colisión con obstáculos
-      let isFree = true;
-      for (const obstacle of obstacles) {
-        const distance = pos.distanceTo(obstacle.position);
-        if (distance < obstacle.radius + minDistanceToObstacle) {
-          isFree = false;
-          break;
-        }
-      }
-
-      if (isFree) break;
-      attempts++;
-    } while (attempts < 50);
-
-    return pos;
+    const x = agent.position[0];
+    const z = agent.position[2];
+    return new Vector3(x, 0.6, z + 1.2);
   });
 
   const [targetPos, setTargetPos] = useState(initialPos);
