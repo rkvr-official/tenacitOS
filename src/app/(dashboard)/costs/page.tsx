@@ -21,6 +21,10 @@ interface CostData {
 
 const COLORS = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#00C7BE', '#30B0C7', '#32ADE6', '#007AFF', '#5856D6', '#AF52DE', '#FF2D55'];
 
+const tooltipContentStyle = { backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px", color: "#fff" } as const;
+const tooltipItemStyle = { color: "#fff" } as const;
+const tooltipLabelStyle = { color: "#fff" } as const;
+
 
 export default function CostsPage() {
   const [costData, setCostData] = useState<CostData | null>(null);
@@ -278,7 +282,7 @@ export default function CostsPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
                 <YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
-                <Tooltip contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} />
+                <Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} />
                 <Legend />
                 <Bar dataKey="input" stackId="a" fill="#60A5FA" name="Input Tokens" />
                 <Bar dataKey="output" stackId="a" fill="#F59E0B" name="Output Tokens" />
@@ -290,19 +294,19 @@ export default function CostsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
             <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Daily Cost Trend</h3>
-            <ResponsiveContainer width="100%" height={300}><LineChart data={costData.daily}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} /><Legend /><Line type="monotone" dataKey="cost" stroke="var(--accent)" strokeWidth={2} name="Cost ($)" /></LineChart></ResponsiveContainer>
+            <ResponsiveContainer width="100%" height={300}><LineChart data={costData.daily}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} /><Legend /><Line type="monotone" dataKey="cost" stroke="var(--accent)" strokeWidth={2} name="Cost ($)" /></LineChart></ResponsiveContainer>
           </div>
           <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
             <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Cost by Agent</h3>
-            <ResponsiveContainer width="100%" height={300}><BarChart data={costData.byAgent}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="agent" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} /><Bar dataKey="cost" fill="var(--accent)" name="Cost ($)" /></BarChart></ResponsiveContainer>
+            <ResponsiveContainer width="100%" height={300}><BarChart data={costData.byAgent}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="agent" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="cost" fill="var(--accent)" name="Cost ($)" /></BarChart></ResponsiveContainer>
           </div>
           <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
             <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Cost by Model</h3>
-            <ResponsiveContainer width="100%" height={300}><RePieChart><Pie data={costData.byModel} dataKey="cost" nameKey="model" cx="50%" cy="50%" outerRadius={100} label={(entry) => `${entry.model}: $${entry.cost.toFixed(2)}`}>{costData.byModel.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}</Pie><Tooltip contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} /></RePieChart></ResponsiveContainer>
+            <ResponsiveContainer width="100%" height={300}><RePieChart><Pie data={costData.byModel} dataKey="cost" nameKey="model" cx="50%" cy="50%" outerRadius={100} label={(entry) => `${entry.model}: $${entry.cost.toFixed(2)}`}>{costData.byModel.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}</Pie><Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} /></RePieChart></ResponsiveContainer>
           </div>
           <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
             <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Token Usage (Daily)</h3>
-            <ResponsiveContainer width="100%" height={300}><BarChart data={costData.daily}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} /><Legend /><Bar dataKey="input" stackId="a" fill="#60A5FA" name="Input Tokens" /><Bar dataKey="output" stackId="a" fill="#F59E0B" name="Output Tokens" /></BarChart></ResponsiveContainer>
+            <ResponsiveContainer width="100%" height={300}><BarChart data={costData.daily}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} /><Legend /><Bar dataKey="input" stackId="a" fill="#60A5FA" name="Input Tokens" /><Bar dataKey="output" stackId="a" fill="#F59E0B" name="Output Tokens" /></BarChart></ResponsiveContainer>
           </div>
         </div>
       )}
@@ -327,7 +331,7 @@ export default function CostsPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="model" stroke="var(--text-muted)" style={{ fontSize: "11px" }} />
               <YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
-              <Tooltip contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} />
+              <Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} />
               <Legend />
               <Bar dataKey="input" fill="#60A5FA" name="Input $/1M" />
               <Bar dataKey="output" fill="#F59E0B" name="Output $/1M" />
@@ -343,8 +347,8 @@ export default function CostsPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis type="number" dataKey="cost" name="Total $/1M" stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
               <YAxis type="number" dataKey="quality" name="Quality" stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
-              <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(v:any, n:any, p:any)=> n==='cost'?`$${v}`:v} labelFormatter={(_,payload:any)=>payload?.[0]?.payload?.name || ''} />
-              <Scatter name="Models" fill="#FF3B30" data={pricingRows.slice(0,12).map((r)=>({ name:r.model.split('/').pop(), cost:Number(((r.inputPerM||0)+(r.outputPerM||0)).toFixed(3)), quality: Number((((r.benchmarks?.intelligence||0)+(r.benchmarks?.coding||0)+(r.benchmarks?.math||0))/3).toFixed(2)) }))} />
+              <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} formatter={(v:any, n:any, p:any)=> n==='cost'?`$${v}`:v} labelFormatter={(_,payload:any)=>payload?.[0]?.payload?.name || ''} />
+              <Scatter name="Models" fill="#FF3B30" data={pricingRows.slice(0,12).map((r)=>{ const avgBench=((r.benchmarks?.intelligence||0)+(r.benchmarks?.coding||0)+(r.benchmarks?.math||0))/3; const q=avgBench>0?avgBench:((r.ranking?.complex==="high"?3:2)+(r.ranking?.research==="high"?3:2)+(r.ranking?.thinking==="high"?3:2))/3; return ({ name:r.model.split('/').pop(), cost:Number(((r.inputPerM||0)+(r.outputPerM||0)).toFixed(3)), quality:Number(q.toFixed(2)) }); })} />
             </ScatterChart>
           </ResponsiveContainer>
         </div>
