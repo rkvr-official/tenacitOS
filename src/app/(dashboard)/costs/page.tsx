@@ -5,6 +5,7 @@ import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Calendar, PieChart
 import { LineChart, Line, BarChart, Bar, PieChart as RePieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 interface CostData {
+  updatedAt?: string;
   today: number;
   yesterday: number;
   thisMonth: number;
@@ -15,7 +16,7 @@ interface CostData {
   byModel: Array<{ model: string; cost: number; tokens: number }>;
   daily: Array<{ date: string; cost: number; input: number; output: number }>;
   hourly: Array<{ hour: string; cost: number }>;
-  modelPricing?: Array<{ model: string; inputPerM: number | null; outputPerM: number | null; source: string }>;
+  modelPricing?: Array<{ model: string; inputPerM: number | null; outputPerM: number | null; localEstPerM: number; source: string; local: boolean; available: boolean; tpsCloud: number; tpsLocal: number; agents: string[] }>;
 }
 
 const COLORS = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#00C7BE', '#30B0C7', '#32ADE6', '#007AFF', '#5856D6', '#AF52DE', '#FF2D55'];
@@ -26,16 +27,18 @@ export default function CostsPage() {
   const [loading, setLoading] = useState(true);
   const [timeframe, setTimeframe] = useState<"7d" | "30d" | "90d">("30d");
   const [pricingPage, setPricingPage] = useState(1);
+  const [deployment, setDeployment] = useState<"cloud" | "local" | "all">("cloud");
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetchCostData();
     const interval = setInterval(fetchCostData, 60000); // Update every minute
     return () => clearInterval(interval);
-  }, [timeframe]);
+  }, [timeframe, deployment]);
 
   const fetchCostData = async () => {
     try {
-      const res = await fetch(`/api/costs?timeframe=${timeframe}`);
+      const res = await fetch(`/api/costs?timeframe=${timeframe}&deployment=${deployment}`);
       if (res.ok) {
         const data = await res.json();
         setCostData(data);
@@ -47,6 +50,21 @@ export default function CostsPage() {
     }
   };
 
+
+
+  const refreshLatest = async () => {
+    setRefreshing(true);
+    try {
+      await fetch('/api/costs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'refresh' }),
+      });
+      await fetchCostData();
+    } finally {
+      setRefreshing(false);
+    }
+  };
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -98,21 +116,24 @@ export default function CostsPage() {
           </p>
         </div>
 
-        {/* Timeframe selector */}
-        <div className="flex gap-2 p-1 rounded-lg" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
-          {(["7d", "30d", "90d"] as const).map((tf) => (
-            <button
-              key={tf}
-              onClick={() => setTimeframe(tf)}
-              className="px-4 py-2 rounded-md text-sm font-medium transition-all"
-              style={{
-                backgroundColor: timeframe === tf ? "var(--accent)" : "transparent",
-                color: timeframe === tf ? "white" : "var(--text-secondary)",
-              }}
-            >
-              {tf === "7d" ? "7 days" : tf === "30d" ? "30 days" : "90 days"}
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex gap-2 p-1 rounded-lg" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+            {(["7d", "30d", "90d"] as const).map((tf) => (
+              <button key={tf} onClick={() => setTimeframe(tf)} className="px-4 py-2 rounded-md text-sm font-medium transition-all" style={{ backgroundColor: timeframe === tf ? "var(--accent)" : "transparent", color: timeframe === tf ? "white" : "var(--text-secondary)" }}>
+                {tf === "7d" ? "7 days" : tf === "30d" ? "30 days" : "90 days"}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            {(["cloud", "local", "all"] as const).map((m) => (
+              <button key={m} onClick={() => { setDeployment(m); setPricingPage(1); }} className="px-3 py-1 rounded border text-xs" style={{ borderColor: "var(--border)", color: deployment === m ? "var(--accent)" : "var(--text-secondary)" }}>
+                {m.toUpperCase()} 1M
+              </button>
+            ))}
+            <button onClick={refreshLatest} disabled={refreshing} className="px-3 py-1 rounded border text-xs" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
+              {refreshing ? "Refreshing..." : "Refresh latest quota/info"}
             </button>
-          ))}
+          </div>
         </div>
       </div>
 
@@ -325,6 +346,9 @@ export default function CostsPage() {
                 <th className="text-left py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Model</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Input</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Output</th>
+                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Local Est</th>
+                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Tok/s (cloud/local)</th>
+                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Agents</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Source</th>
               </tr>
             </thead>
@@ -334,6 +358,9 @@ export default function CostsPage() {
                   <td className="py-3 px-4"><span className="font-medium" style={{ color: "var(--text-primary)" }}>{row.model}</span></td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.inputPerM == null ? "N/A" : `$${row.inputPerM}`}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.outputPerM == null ? "N/A" : `$${row.outputPerM}`}</td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>${row.localEstPerM}</td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.tpsCloud}/{row.tpsLocal}</td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{(row.agents || []).join(", ") || "-"}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.source}</td>
                 </tr>
               ))}
@@ -342,7 +369,7 @@ export default function CostsPage() {
         </div>
         <div className="flex items-center justify-between mt-4">
           <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
-            Page {pricingPage} / {totalPages} · {pricingRows.length} models
+            Page {pricingPage} / {totalPages} · {pricingRows.length} models{costData.updatedAt ? ` · updated ${new Date(costData.updatedAt).toLocaleTimeString()}` : ""}
           </div>
           <div className="flex gap-2">
             <button onClick={() => setPricingPage((p) => Math.max(1, p - 1))} disabled={pricingPage === 1} className="px-3 py-1 rounded border" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Prev</button>
