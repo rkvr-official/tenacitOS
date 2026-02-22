@@ -127,15 +127,15 @@ function getSelectedModels(db: any, deployment: Deployment) {
     const web = ppt.get(short) || null;
     const webInput = web?.input != null ? Number(web.input) : null;
     const webOutput = web?.output != null ? Number(web.output) : null;
-    const finalInput = webInput ?? inputPerM;
-    const finalOutput = webOutput ?? outputPerM;
+    const finalInput = inputPerM ?? webInput;
+    const finalOutput = outputPerM ?? webOutput;
 
     return {
       model: id,
       inputPerM: finalInput,
       outputPerM: finalOutput,
       source: info.provider,
-      pricingSource: web ? "pricepertoken" : (p ? "provider-published" : fb ? "provider-default" : "missing"),
+      pricingSource: p?.source ? p.source : (web ? "pricepertoken" : fb ? "provider-default" : "missing"),
       local: info.local,
       available: info.available,
       tpsCloud: web?.tps ? Number(web.tps) : tpsCloud,
