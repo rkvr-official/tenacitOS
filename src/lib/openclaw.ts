@@ -12,6 +12,7 @@ export interface OpenclawAgent {
   color: string;
   model: string;
   workspace: string;
+  allowAgents: string[];
   status: "online" | "offline";
   currentState: "ACTIVE" | "IDLE" | "SLEEPING";
   isOrchestrator: boolean;
@@ -125,8 +126,9 @@ export function getAgents(): OpenclawAgent[] {
       else currentState = "SLEEPING";
     }
 
+    const allowAgents = Array.isArray(agent?.subagents?.allowAgents) ? agent.subagents.allowAgents : [];
     const activeSessions = (sessions[agent.id] || []).length;
-    const isOrchestrator = Array.isArray(agent?.subagents?.allowAgents) && agent.subagents.allowAgents.length > 0;
+    const isOrchestrator = allowAgents.length > 0;
 
     return {
       id: agent.id,
@@ -135,6 +137,7 @@ export function getAgents(): OpenclawAgent[] {
       color: info.color,
       model: agent.model?.primary || config.agents?.defaults?.model?.primary || "unknown",
       workspace,
+      allowAgents,
       status,
       currentState,
       isOrchestrator,
@@ -147,7 +150,12 @@ export function getAgents(): OpenclawAgent[] {
 function getAgentSessionsById(): Record<string, AgentSession[]> {
   let rawSessions: RawSession[] = [];
   try {
-    const payload = runOpenclawJson(["sessions", "list"]);
+    let payload: any;
+    try {
+      payload = runOpenclawJson(["sessions", "list"]);
+    } catch {
+      payload = runOpenclawJson(["sessions"]);
+    }
     rawSessions = payload.sessions || [];
   } catch {
     return {};

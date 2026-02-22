@@ -10,6 +10,7 @@ import {
   ExternalLink,
   FileText,
   X,
+  Download,
 } from "lucide-react";
 import { SectionHeader, MetricCard } from "@/components/TenacitOS";
 
@@ -31,11 +32,20 @@ interface SkillsData {
   skills: Skill[];
 }
 
+interface HubSkill {
+  slug: string;
+  name: string;
+  description?: string;
+}
+
 export default function SkillsPage() {
   const [data, setData] = useState<SkillsData | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterSource, setFilterSource] = useState<"all" | "workspace" | "system">("all");
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
+  const [hubQuery, setHubQuery] = useState("");
+  const [hubResults, setHubResults] = useState<HubSkill[]>([]);
+  const [hubLoading, setHubLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/skills")
@@ -79,6 +89,29 @@ export default function SkillsPage() {
 
   const workspaceCount = skills.filter((s) => s.source === "workspace").length;
   const systemCount = skills.filter((s) => s.source === "system").length;
+
+  const searchHub = async () => {
+    const q = hubQuery.trim();
+    if (!q) return;
+    setHubLoading(true);
+    try {
+      const res = await fetch(`/api/skills/hub/search?q=${encodeURIComponent(q)}&limit=30`);
+      const data = await res.json();
+      setHubResults(data.skills || []);
+    } finally {
+      setHubLoading(false);
+    }
+  };
+
+  const installFromHub = async (slug: string) => {
+    await fetch('/api/skills/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug }),
+    });
+    const refreshed = await fetch('/api/skills').then((r) => r.json());
+    setData(refreshed);
+  };
 
   return (
     <div style={{ padding: "24px" }}>
@@ -228,6 +261,39 @@ export default function SkillsPage() {
             System ({systemCount})
           </button>
         </div>
+      </div>
+
+      {/* ClawHub Marketplace */}
+      <div style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 24 }}>
+        <div style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>ClawHub Marketplace</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <input
+            value={hubQuery}
+            onChange={(e) => setHubQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && searchHub()}
+            placeholder="Search marketplace skills (e.g. notion, weather, slack)"
+            style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", fontSize: 12 }}
+          />
+          <button onClick={searchHub} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--accent-soft)", color: "var(--accent)", cursor: "pointer" }}>
+            {hubLoading ? "Searching..." : "Search"}
+          </button>
+        </div>
+        {hubResults.length > 0 && (
+          <div style={{ display: "grid", gap: 8 }}>
+            {hubResults.map((h) => (
+              <div key={h.slug} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: "var(--text-primary)", fontWeight: 600, fontSize: 13 }}>{h.name || h.slug}</div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{h.slug}</div>
+                  {h.description && <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 2 }}>{h.description}</div>}
+                </div>
+                <button onClick={() => installFromHub(h.slug)} style={{ display: "inline-flex", gap: 6, alignItems: "center", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", cursor: "pointer" }}>
+                  <Download style={{ width: 14, height: 14 }} /> Install
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Skills List */}
