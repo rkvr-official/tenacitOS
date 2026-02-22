@@ -41,6 +41,20 @@ export function hubInspect(slug: string): any {
   return JSON.parse(raw);
 }
 
+export function hubExplore(limit = 200, sort: "newest" | "downloads" | "rating" | "installs" | "installsAllTime" | "trending" = "newest"): any[] {
+  const raw = runText(["explore", "--limit", String(limit), "--sort", sort, "--json"]);
+  const parsed = JSON.parse(raw);
+  return parsed.skills || parsed.items || [];
+}
+
+export function hubSkillMd(slug: string): string {
+  try {
+    return runText(["inspect", slug, "--file", "SKILL.md"], 25000);
+  } catch {
+    return "SKILL.md preview unavailable";
+  }
+}
+
 export function hubInstall(slug: string): { ok: boolean; output: string } {
   const output = runText(["install", slug, "--force"], 60000);
   return { ok: true, output };

@@ -46,6 +46,11 @@ export default function SkillsPage() {
   const [hubQuery, setHubQuery] = useState("");
   const [hubResults, setHubResults] = useState<HubSkill[]>([]);
   const [hubLoading, setHubLoading] = useState(false);
+  const [hubCatalog, setHubCatalog] = useState<any[]>([]);
+  const [hubPage, setHubPage] = useState(1);
+  const [hubTotalPages, setHubTotalPages] = useState(1);
+  const [hubPreview, setHubPreview] = useState<{ slug: string; content: string } | null>(null);
+  const [hubPreviewLoading, setHubPreviewLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/skills")
@@ -53,6 +58,18 @@ export default function SkillsPage() {
       .then(setData)
       .catch(() => setData({ skills: [] }));
   }, []);
+  useEffect(() => {
+    fetch(`/api/skills/hub/explore?page=${hubPage}&pageSize=20&sort=installsAllTime`)
+      .then((r) => r.json())
+      .then((d) => {
+        setHubCatalog(d.items || []);
+        setHubTotalPages(d.totalPages || 1);
+      })
+      .catch(() => {
+        setHubCatalog([]);
+        setHubTotalPages(1);
+      });
+  }, [hubPage]);
 
   if (!data) {
     return (
@@ -111,6 +128,16 @@ export default function SkillsPage() {
     });
     const refreshed = await fetch('/api/skills').then((r) => r.json());
     setData(refreshed);
+  };
+
+  const previewSkillMd = async (slug: string) => {
+    setHubPreviewLoading(true);
+    try {
+      const data = await fetch(`/api/skills/hub/skill-md?slug=${encodeURIComponent(slug)}`).then((r) => r.json());
+      setHubPreview({ slug, content: data.content || 'No content' });
+    } finally {
+      setHubPreviewLoading(false);
+    }
   };
 
   return (
@@ -355,11 +382,53 @@ export default function SkillsPage() {
               </div>
             </div>
           )}
+
+
+      {/* ClawHub Catalog (below system skills request) */}
+      <div style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 24 }}>
+        <div style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 10 }}>ClawHub Catalog</div>
+        <div style={{ display: "grid", gap: 8 }}>
+          {hubCatalog.map((h: any) => (
+            <div key={h.slug} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ color: "var(--text-primary)", fontWeight: 600, fontSize: 13 }}>{h.displayName || h.name || h.slug}</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{h.slug} {h.tags?.latest ? `· v${h.tags.latest}` : ''}</div>
+                {h.summary && <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 2 }}>{h.summary}</div>}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => previewSkillMd(h.slug)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", cursor: "pointer" }}>
+                  {hubPreviewLoading ? 'Loading...' : 'Preview SKILL.md'}
+                </button>
+                <button onClick={() => installFromHub(h.slug)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", cursor: "pointer" }}>
+                  Install
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10 }}>
+          <button onClick={() => setHubPage((p) => Math.max(1, p - 1))} disabled={hubPage === 1} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>Prev</button>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Page {hubPage} / {hubTotalPages}</div>
+          <button onClick={() => setHubPage((p) => Math.min(hubTotalPages, p + 1))} disabled={hubPage === hubTotalPages} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>Next</button>
+        </div>
+      </div>
+
         </div>
       )}
-
       {/* Detail Modal */}
       {selectedSkill && <SkillDetailModal skill={selectedSkill} onClose={() => setSelectedSkill(null)} />}
+
+      {hubPreview && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }} onClick={() => setHubPreview(null)}>
+          <div style={{ width: 'min(1000px, 95vw)', maxHeight: '90vh', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ color: 'var(--text-primary)', fontWeight: 700 }}>SKILL.md Preview · {hubPreview.slug}</div>
+              <button onClick={() => setHubPreview(null)} style={{ color: 'var(--text-secondary)' }}>Close</button>
+            </div>
+            <textarea readOnly value={hubPreview.content} style={{ width: '100%', height: '70vh', backgroundColor: 'var(--bg)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

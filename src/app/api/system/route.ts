@@ -47,13 +47,18 @@ function getIntegrationStatus(openclawStatus: any = null) {
   const telegramConfig = openclawConfig?.channels?.telegram;
   const telegramEnabled = !!telegramConfig?.enabled;
   const telegramAccounts = telegramConfig?.accounts ? Object.keys(telegramConfig.accounts).length : 0;
+  const telegramBots = Math.max(
+    telegramAccounts,
+    telegramConfig?.botToken ? 1 : 0,
+    (openclawConfig?.bindings || []).filter((b: any) => b?.match?.channel === 'telegram').length > 0 ? 1 : 0
+  );
   integrations.push({
     id: 'telegram',
     name: 'Telegram',
     status: telegramEnabled ? 'connected' : 'disconnected',
     icon: 'MessageCircle',
     lastActivity: lastByNeedle(':telegram:') || null,
-    detail: telegramEnabled ? `${telegramAccounts} bots configured` : null,
+    detail: telegramEnabled ? `${telegramBots} bots configured` : null,
   });
 
   // Slack
