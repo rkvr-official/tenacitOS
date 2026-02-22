@@ -6,8 +6,8 @@ function resolveWorkspace(config: any, agentId: string, agentConfig: any): strin
   if (typeof agentConfig?.workspace === "string" && agentConfig.workspace.length) return agentConfig.workspace;
   const openclawDir = process.env.OPENCLAW_DIR || "/root/.openclaw";
   const baseWorkspace = config?.agents?.defaults?.workspace || join(openclawDir, "workspace");
-  const defaultAgentId = config?.heartbeat?.defaultAgentId;
-  if (agentId === defaultAgentId) return baseWorkspace;
+  const defaultAgentId = config?.heartbeat?.defaultAgentId || config?.agents?.list?.[0]?.id;
+  if (agentId && agentId === defaultAgentId) return baseWorkspace;
   return `${baseWorkspace}-${agentId}`;
 }
 

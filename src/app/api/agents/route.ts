@@ -41,9 +41,11 @@ function resolveWorkspace(config: any, agentId: string, agentConfig: any): strin
   const openclawDir = process.env.OPENCLAW_DIR || "/root/.openclaw";
   const baseWorkspace = config?.agents?.defaults?.workspace || join(openclawDir, "workspace");
 
-  // Heuristic: the default agent (heartbeat.defaultAgentId) uses the base workspace.
-  const defaultAgentId = config?.heartbeat?.defaultAgentId;
-  if (agentId === defaultAgentId) return baseWorkspace;
+  // Heuristic: if a default agent id is known, it uses the base workspace.
+  // Some OpenClaw configs don't include `heartbeat.defaultAgentId`, so we fall back
+  // to the first entry in `agents.list`.
+  const defaultAgentId = config?.heartbeat?.defaultAgentId || config?.agents?.list?.[0]?.id;
+  if (agentId && agentId === defaultAgentId) return baseWorkspace;
 
   // Other agents are typically `workspace-<agentId>`.
   return `${baseWorkspace}-${agentId}`;
