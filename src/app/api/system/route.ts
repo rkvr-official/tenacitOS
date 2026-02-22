@@ -29,19 +29,17 @@ function parseIdentityMd(): { name: string; creature: string; emoji: string } {
 
 function getIntegrationStatus() {
   const integrations = [];
+  let openclawConfig: any = {};
 
-  // Telegram — read from openclaw.json (channels.telegram)
-  let telegramEnabled = false;
-  let telegramAccounts = 0;
   try {
     const openclawConfigPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
-    const openclawConfig = JSON.parse(fs.readFileSync(openclawConfigPath, 'utf-8'));
-    const telegramConfig = openclawConfig?.channels?.telegram;
-    telegramEnabled = !!(telegramConfig?.enabled);
-    if (telegramConfig?.accounts) {
-      telegramAccounts = Object.keys(telegramConfig.accounts).length;
-    }
+    openclawConfig = JSON.parse(fs.readFileSync(openclawConfigPath, 'utf-8'));
   } catch {}
+
+  // Telegram
+  const telegramConfig = openclawConfig?.channels?.telegram;
+  const telegramEnabled = !!telegramConfig?.enabled;
+  const telegramAccounts = telegramConfig?.accounts ? Object.keys(telegramConfig.accounts).length : 0;
   integrations.push({
     id: 'telegram',
     name: 'Telegram',
@@ -51,46 +49,54 @@ function getIntegrationStatus() {
     detail: telegramEnabled ? `${telegramAccounts} bots configured` : null,
   });
 
-  // Twitter (bird CLI) - check TOOLS.md for configuration
-  let twitterConfigured = false;
-  try {
-    const toolsPath = path.join(WORKSPACE_PATH, 'TOOLS.md');
-    const toolsContent = fs.readFileSync(toolsPath, 'utf-8');
-    twitterConfigured = toolsContent.includes('bird') && toolsContent.includes('auth_token');
-  } catch {}
+  // Slack
+  const slackConfig = openclawConfig?.channels?.slack;
+  const slackEnabled = !!slackConfig?.enabled;
+  const slackAccounts = slackConfig?.accounts ? Object.keys(slackConfig.accounts).length : 0;
   integrations.push({
-    id: 'twitter',
-    name: 'Twitter (bird CLI)',
-    status: twitterConfigured ? 'configured' : 'not_configured',
-    icon: 'Twitter',
-    lastActivity: null,
-    detail: null,
+    id: 'slack',
+    name: 'Slack',
+    status: slackEnabled ? 'connected' : 'disconnected',
+    icon: 'Slack',
+    lastActivity: slackEnabled ? new Date().toISOString() : null,
+    detail: slackEnabled ? `${slackAccounts} account(s)` : null,
   });
 
-  // Google (gog/google-gemini-cli-auth) — check openclaw.json plugins
-  let googleConfigured = false;
-  let googleDetail: string | null = null;
+  // GitHub (gh auth)
+  let githubConnected = false;
   try {
-    const openclawConfigPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
-    const openclawConfig = JSON.parse(fs.readFileSync(openclawConfigPath, 'utf-8'));
-    const gogPlugin = openclawConfig?.plugins?.entries?.['google-gemini-cli-auth'];
-    googleConfigured = !!(gogPlugin?.enabled);
-    if (googleConfigured) googleDetail = 'google-gemini-cli-auth plugin enabled';
+    execSync('gh auth status >/dev/null 2>&1', { timeout: 4000 });
+    githubConnected = true;
   } catch {}
-  // Fallback: check for gog config directory
-  if (!googleConfigured) {
-    try {
-      const gogPath = path.join(os.homedir(), '.config', 'gog');
-      googleConfigured = fs.existsSync(gogPath);
-    } catch {}
-  }
+  integrations.push({
+    id: 'github',
+    name: 'GitHub',
+    status: githubConnected ? 'connected' : 'disconnected',
+    icon: 'Github',
+    lastActivity: githubConnected ? new Date().toISOString() : null,
+    detail: githubConnected ? 'gh CLI authenticated' : 'gh auth required',
+  });
+
+  // Brave search
+  const braveConfigured = !!openclawConfig?.tools?.web?.search?.enabled && !!openclawConfig?.tools?.web?.search?.apiKey;
+  integrations.push({
+    id: 'brave',
+    name: 'Brave Search',
+    status: braveConfigured ? 'configured' : 'not_configured',
+    icon: 'Search',
+    lastActivity: null,
+    detail: braveConfigured ? 'API key configured' : null,
+  });
+
+  // Google/Gemini
+  const googleConfigured = !!openclawConfig?.auth?.profiles?.['google:default'] || !!openclawConfig?.skills?.entries?.['nano-banana-pro']?.apiKey;
   integrations.push({
     id: 'google',
-    name: 'Google (GOG)',
+    name: 'Google / Gemini',
     status: googleConfigured ? 'configured' : 'not_configured',
     icon: 'Mail',
     lastActivity: null,
-    detail: googleDetail,
+    detail: googleConfigured ? 'Google profile/API key configured' : 'No Google profile detected',
   });
 
   return integrations;
@@ -102,6 +108,8 @@ function getOpenclawRuntime(): { model: string; agentName?: string; workspacePat
     const status = JSON.parse(raw);
 
     const model =
+      status?.sessions?.recent?.[0]?.model ||
+      status?.sessions?.defaults?.model ||
       status?.models?.active?.[0]?.id ||
       status?.agents?.defaults?.model?.primary ||
       status?.config?.agents?.defaults?.model?.primary ||

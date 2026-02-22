@@ -378,7 +378,7 @@
 
 ## Prioridad Recomendada
 
-### Tier 0: The Flagship 🚀 (Requested by Carlos)
+### Tier 0: The Flagship 🚀 (Requested by Arnau)
 **Fase 8: The Office 3D** - Entorno 3D inmersivo donde visualizar agentes trabajando
 - Empezar por MVP (8.1) → 2 semanas
 - Luego Interactions (8.2) → 1 semana

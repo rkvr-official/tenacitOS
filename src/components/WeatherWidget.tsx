@@ -97,7 +97,19 @@ export function WeatherWidget() {
   }
 
   if (!weather || (weather as unknown as Record<string, unknown>).error) {
-    return null;
+    return (
+      <div style={{
+        padding: "1.25rem",
+        backgroundColor: "var(--card)",
+        borderRadius: "0.75rem",
+        border: "1px solid var(--border)",
+      }}>
+        <div style={{ color: "var(--text-primary)", fontWeight: 600, marginBottom: "0.25rem" }}>Weather unavailable</div>
+        <div style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
+          Could not fetch weather right now. Retrying automatically…
+        </div>
+      </div>
+    );
   }
 
   return (
