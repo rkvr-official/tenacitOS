@@ -38,12 +38,12 @@ interface SystemData {
 
 export default function SettingsPage() {
   const [systemData, setSystemData] = useState<SystemData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const fetchSystemData = async () => {
     try {
-      const res = await fetch("/api/system");
+      const res = await fetch(`/api/system?t=${Date.now()}`, { cache: "no-store" });
       const data = await res.json();
       setSystemData(data);
       setLastRefresh(new Date());
@@ -55,6 +55,7 @@ export default function SettingsPage() {
   };
 
   useEffect(() => {
+    setLoading(true);
     fetchSystemData();
     const interval = setInterval(fetchSystemData, 30000);
     return () => clearInterval(interval);

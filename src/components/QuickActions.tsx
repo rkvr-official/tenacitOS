@@ -9,6 +9,8 @@ import {
   Loader2,
   CheckCircle,
   AlertCircle,
+  Activity,
+  Cpu,
 } from "lucide-react";
 import { ChangePasswordModal } from "./ChangePasswordModal";
 
@@ -22,7 +24,6 @@ interface ActionButton {
   icon: React.ComponentType<{ className?: string }>;
   color: "emerald" | "blue" | "yellow" | "red";
   action: () => Promise<void> | void;
-  placeholder?: boolean;
 }
 
 export function QuickActions({ onActionComplete }: QuickActionsProps) {
@@ -35,12 +36,30 @@ export function QuickActions({ onActionComplete }: QuickActionsProps) {
 
   const showNotification = (type: "success" | "error", message: string) => {
     setNotification({ type, message });
-    setTimeout(() => setNotification(null), 3000);
+    setTimeout(() => setNotification(null), 4000);
   };
 
-  const handleRestartGateway = async () => {
-    // Placeholder - would call openclaw gateway restart
-    showNotification("success", "Gateway restart command sent (placeholder)");
+  const callAction = async (id: string, action: string) => {
+    setLoadingAction(id);
+    try {
+      const res = await fetch("/api/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.status === "error") {
+        throw new Error(data?.output || data?.error || "Action failed");
+      }
+
+      const output = String(data.output || "").slice(0, 160).replace(/\n+/g, " · ");
+      showNotification("success", `${action} ok${output ? `: ${output}` : ""}`);
+      onActionComplete?.();
+    } catch (e) {
+      showNotification("error", e instanceof Error ? e.message : "Action failed");
+    } finally {
+      setLoadingAction(null);
+    }
   };
 
   const handleClearActivityLog = async () => {
@@ -63,19 +82,27 @@ export function QuickActions({ onActionComplete }: QuickActionsProps) {
     }
   };
 
-  const handleViewLogs = async () => {
-    // Placeholder - would open gateway logs
-    showNotification("success", "Opening gateway logs... (placeholder)");
-  };
-
   const actions: ActionButton[] = [
     {
-      id: "restart",
-      label: "Restart Gateway",
+      id: "restart_gateway",
+      label: "Restart OpenClaw Gateway",
       icon: RefreshCw,
       color: "blue",
-      action: handleRestartGateway,
-      placeholder: true,
+      action: () => callAction("restart_gateway", "restart-gateway"),
+    },
+    {
+      id: "heartbeat",
+      label: "Run Health Check",
+      icon: Activity,
+      color: "emerald",
+      action: () => callAction("heartbeat", "heartbeat"),
+    },
+    {
+      id: "usage",
+      label: "Usage Snapshot",
+      icon: Cpu,
+      color: "yellow",
+      action: () => callAction("usage", "usage-stats"),
     },
     {
       id: "clear_log",
@@ -85,12 +112,11 @@ export function QuickActions({ onActionComplete }: QuickActionsProps) {
       action: handleClearActivityLog,
     },
     {
-      id: "view_logs",
-      label: "View Gateway Logs",
+      id: "git_status",
+      label: "Workspace Git Status",
       icon: FileText,
       color: "emerald",
-      action: handleViewLogs,
-      placeholder: true,
+      action: () => callAction("git_status", "git-status"),
     },
     {
       id: "change_password",
@@ -118,7 +144,6 @@ export function QuickActions({ onActionComplete }: QuickActionsProps) {
           Quick Actions
         </h2>
 
-        {/* Notification */}
         {notification && (
           <div
             className={`flex items-center gap-2 p-3 rounded-lg mb-4 ${
@@ -156,9 +181,6 @@ export function QuickActions({ onActionComplete }: QuickActionsProps) {
                   <Icon className="w-4 h-4" />
                 )}
                 <span className="font-medium">{action.label}</span>
-                {action.placeholder && (
-                  <span className="text-xs opacity-50">(placeholder)</span>
-                )}
               </button>
             );
           })}
@@ -169,7 +191,7 @@ export function QuickActions({ onActionComplete }: QuickActionsProps) {
         isOpen={showPasswordModal}
         onClose={() => setShowPasswordModal(false)}
         onSuccess={() => {
-          showNotification("success", "Password changed successfully");
+          showNotification("success", "Password changed (restart tenacitos to apply)");
           setShowPasswordModal(false);
         }}
       />

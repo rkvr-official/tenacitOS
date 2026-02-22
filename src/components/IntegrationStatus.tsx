@@ -9,6 +9,7 @@ interface Integration {
   status: "connected" | "disconnected" | "configured" | "not_configured";
   icon: string;
   lastActivity: string | null;
+  detail?: string | null;
 }
 
 interface IntegrationStatusProps {
@@ -97,6 +98,9 @@ export function IntegrationStatus({ integrations }: IntegrationStatusProps) {
                         addSuffix: true,
                       })}
                     </div>
+                  )}
+                  {integration.detail && (
+                    <div className="text-xs text-gray-500">{integration.detail}</div>
                   )}
                 </div>
               </div>

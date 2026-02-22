@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { execSync } from 'child_process';
 
 import { OPENCLAW_WORKSPACE, WORKSPACE_IDENTITY } from '@/lib/paths';
 
@@ -95,15 +96,48 @@ function getIntegrationStatus() {
   return integrations;
 }
 
+function getOpenclawRuntime(): { model: string; agentName?: string; workspacePath?: string } {
+  try {
+    const raw = execSync('openclaw status --json 2>/dev/null', { encoding: 'utf-8', timeout: 8000 });
+    const status = JSON.parse(raw);
+
+    const model =
+      status?.models?.active?.[0]?.id ||
+      status?.agents?.defaults?.model?.primary ||
+      status?.config?.agents?.defaults?.model?.primary ||
+      null;
+
+    let agentName: string | undefined;
+    let workspacePath: string | undefined;
+
+    try {
+      const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.openclaw', 'openclaw.json'), 'utf-8'));
+      const first = cfg?.agents?.list?.[0];
+      agentName = first?.name || cfg?.agents?.defaults?.name;
+      workspacePath = first?.workspace || cfg?.agents?.defaults?.workspace;
+    } catch {}
+
+    return {
+      model: model || process.env.OPENCLAW_MODEL || process.env.DEFAULT_MODEL || 'unknown',
+      agentName,
+      workspacePath,
+    };
+  } catch {
+    return {
+      model: process.env.OPENCLAW_MODEL || process.env.DEFAULT_MODEL || 'unknown',
+    };
+  }
+}
+
 export async function GET() {
   const identity = parseIdentityMd();
-  const uptime = process.uptime();
+  const uptime = os.uptime();
   const nodeVersion = process.version;
-  const model = process.env.OPENCLAW_MODEL || process.env.DEFAULT_MODEL || 'anthropic/claude-sonnet-4';
-  
+  const runtime = getOpenclawRuntime();
+
   const systemInfo = {
     agent: {
-      name: identity.name,
+      name: runtime.agentName || identity.name,
       creature: identity.creature,
       emoji: identity.emoji,
     },
@@ -111,8 +145,8 @@ export async function GET() {
       uptime: Math.floor(uptime),
       uptimeFormatted: formatUptime(uptime),
       nodeVersion,
-      model,
-      workspacePath: WORKSPACE_PATH,
+      model: runtime.model,
+      workspacePath: runtime.workspacePath || WORKSPACE_PATH,
       platform: os.platform(),
       hostname: os.hostname(),
       memory: {
@@ -124,7 +158,7 @@ export async function GET() {
     integrations: getIntegrationStatus(),
     timestamp: new Date().toISOString(),
   };
-  
+
   return NextResponse.json(systemInfo);
 }
 
@@ -143,23 +177,27 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Could not read configuration' }, { status: 500 });
       }
       
-      // Verify current password
-      const currentPassMatch = envContent.match(/AUTH_PASSWORD=(.+)/);
+      // Verify current password (ADMIN_PASSWORD is canonical; AUTH_PASSWORD legacy)
+      const currentPassMatch = envContent.match(/ADMIN_PASSWORD=(.+)/) || envContent.match(/AUTH_PASSWORD=(.+)/);
       const storedPassword = currentPassMatch?.[1]?.trim();
       
       if (storedPassword !== currentPassword) {
         return NextResponse.json({ error: 'Current password is incorrect' }, { status: 401 });
       }
       
-      // Update password
-      const newEnvContent = envContent.replace(
-        /AUTH_PASSWORD=.*/,
-        `AUTH_PASSWORD=${newPassword}`
-      );
-      
+      // Update password (prefer ADMIN_PASSWORD; write if missing)
+      let newEnvContent = envContent;
+      if (/ADMIN_PASSWORD=.*/.test(newEnvContent)) {
+        newEnvContent = newEnvContent.replace(/ADMIN_PASSWORD=.*/, `ADMIN_PASSWORD=${newPassword}`);
+      } else if (/AUTH_PASSWORD=.*/.test(newEnvContent)) {
+        newEnvContent = newEnvContent.replace(/AUTH_PASSWORD=.*/, `AUTH_PASSWORD=${newPassword}`);
+      } else {
+        newEnvContent = `${newEnvContent.trim()}\nADMIN_PASSWORD=${newPassword}\n`;
+      }
+
       fs.writeFileSync(ENV_LOCAL_PATH, newEnvContent);
       
-      return NextResponse.json({ success: true, message: 'Password updated successfully' });
+      return NextResponse.json({ success: true, message: 'Password updated successfully (restart tenacitos to apply)' });
     }
     
     if (action === 'clear_activity_log') {
