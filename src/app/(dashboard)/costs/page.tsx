@@ -28,7 +28,7 @@ const tooltipLabelStyle = { color: "#fff" } as const;
 
 export default function CostsPage() {
   const [costData, setCostData] = useState<CostData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [timeframe, setTimeframe] = useState<"7d" | "30d" | "90d">("30d");
   const [pricingPage, setPricingPage] = useState(1);
   const [deployment, setDeployment] = useState<"cloud" | "local" | "all">("cloud");
@@ -36,17 +36,25 @@ export default function CostsPage() {
   const [rankSort, setRankSort] = useState<"usage"|"perf"|"complex"|"research"|"thinking"|"speed">("usage");
 
   useEffect(() => {
+    try {
+      const k = `costs_cache_${timeframe}_${deployment}`;
+      const cached = localStorage.getItem(k);
+      if (cached) setCostData(JSON.parse(cached));
+    } catch {}
+
     fetchCostData();
     const interval = setInterval(fetchCostData, 60000); // Update every minute
     return () => clearInterval(interval);
   }, [timeframe, deployment]);
 
   const fetchCostData = async () => {
+    if (!costData) setLoading(true);
     try {
       const res = await fetch(`/api/costs?timeframe=${timeframe}&deployment=${deployment}`);
       if (res.ok) {
         const data = await res.json();
         setCostData(data);
+        try { localStorage.setItem(`costs_cache_${timeframe}_${deployment}`, JSON.stringify(data)); } catch {}
       }
     } catch (error) {
       console.error("Failed to fetch cost data:", error);

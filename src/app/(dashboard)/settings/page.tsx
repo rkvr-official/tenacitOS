@@ -47,6 +47,7 @@ export default function SettingsPage() {
       const res = await fetch(`/api/system?t=${Date.now()}`, { cache: "no-store" });
       const data = await res.json();
       setSystemData(data);
+      try { localStorage.setItem('settings_system_cache', JSON.stringify(data)); } catch {}
       setLastRefresh(new Date());
     } catch (error) {
       console.error("Failed to fetch system data:", error);
@@ -56,6 +57,13 @@ export default function SettingsPage() {
   };
 
   useEffect(() => {
+    try {
+      const cached = localStorage.getItem('settings_system_cache');
+      if (cached) setSystemData(JSON.parse(cached));
+      const cachedLogs = localStorage.getItem('settings_action_logs');
+      if (cachedLogs) setActionLogs(JSON.parse(cachedLogs));
+    } catch {}
+
     setLoading(true);
     fetchSystemData();
     const interval = setInterval(fetchSystemData, 30000);
@@ -68,7 +76,11 @@ export default function SettingsPage() {
   };
 
   const appendLog = (entry: string) => {
-    setActionLogs((prev) => [entry, ...prev].slice(0, 200));
+    setActionLogs((prev) => {
+      const next = [entry, ...prev].slice(0, 200);
+      try { localStorage.setItem('settings_action_logs', JSON.stringify(next)); } catch {}
+      return next;
+    });
   };
 
   const logsText = useMemo(() => actionLogs.join("\n\n"), [actionLogs]);
@@ -146,7 +158,7 @@ export default function SettingsPage() {
             <button onClick={copyLogs} className="px-2 py-1 rounded border text-xs flex items-center gap-1" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
               <Copy className="w-3 h-3" /> Copy
             </button>
-            <button onClick={() => setActionLogs([])} className="px-2 py-1 rounded border text-xs flex items-center gap-1" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+            <button onClick={() => { setActionLogs([]); try { localStorage.setItem('settings_action_logs', JSON.stringify([])); } catch {} }} className="px-2 py-1 rounded border text-xs flex items-center gap-1" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
               <Trash2 className="w-3 h-3" /> Clear
             </button>
           </div>
