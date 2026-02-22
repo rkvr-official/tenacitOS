@@ -51,6 +51,7 @@ export default function SkillsPage() {
   const [hubTotalPages, setHubTotalPages] = useState(1);
   const [hubPreview, setHubPreview] = useState<{ slug: string; content: string } | null>(null);
   const [hubPreviewLoading, setHubPreviewLoading] = useState(false);
+  const [hubCategory, setHubCategory] = useState("all");
 
   useEffect(() => {
     fetch("/api/skills")
@@ -139,6 +140,20 @@ export default function SkillsPage() {
       setHubPreviewLoading(false);
     }
   };
+
+
+  const categoryOf = (h: any) => {
+    const t = `${h.slug || ''} ${h.displayName || ''} ${h.summary || ''}`.toLowerCase();
+    if (/github|git|code|dev|terminal|tmux|api|mcp/.test(t)) return 'dev';
+    if (/gmail|calendar|notion|docs|sheets|drive|office|product/.test(t)) return 'productivity';
+    if (/image|video|pdf|audio|voice|whisper|tts|gif/.test(t)) return 'media';
+    if (/slack|telegram|discord|whatsapp|email|himalaya/.test(t)) return 'communication';
+    if (/security|healthcheck|auth|password/.test(t)) return 'security';
+    if (/weather|sleep|blu|places|home|eight/.test(t)) return 'home';
+    return 'other';
+  };
+
+  const filteredHubCatalog = hubCatalog.filter((h: any) => hubCategory === 'all' ? true : categoryOf(h) === hubCategory);
 
   return (
     <div style={{ padding: "24px" }}>
@@ -290,39 +305,6 @@ export default function SkillsPage() {
         </div>
       </div>
 
-      {/* ClawHub Marketplace */}
-      <div style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 24 }}>
-        <div style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>ClawHub Marketplace</div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          <input
-            value={hubQuery}
-            onChange={(e) => setHubQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && searchHub()}
-            placeholder="Search marketplace skills (e.g. notion, weather, slack)"
-            style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", fontSize: 12 }}
-          />
-          <button onClick={searchHub} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--accent-soft)", color: "var(--accent)", cursor: "pointer" }}>
-            {hubLoading ? "Searching..." : "Search"}
-          </button>
-        </div>
-        {hubResults.length > 0 && (
-          <div style={{ display: "grid", gap: 8 }}>
-            {hubResults.map((h) => (
-              <div key={h.slug} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ color: "var(--text-primary)", fontWeight: 600, fontSize: 13 }}>{h.name || h.slug}</div>
-                  <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{h.slug}</div>
-                  {h.description && <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 2 }}>{h.description}</div>}
-                </div>
-                <button onClick={() => installFromHub(h.slug)} style={{ display: "inline-flex", gap: 6, alignItems: "center", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", cursor: "pointer" }}>
-                  <Download style={{ width: 14, height: 14 }} /> Install
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* Skills List */}
       {filteredSkills.length === 0 ? (
         <div
@@ -387,8 +369,15 @@ export default function SkillsPage() {
       {/* ClawHub Catalog (below system skills request) */}
       <div style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 24 }}>
         <div style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 10 }}>ClawHub Catalog</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          {(["all","dev","productivity","media","communication","security","home","other"] as const).map((c) => (
+            <button key={c} onClick={() => setHubCategory(c)} style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid var(--border)", backgroundColor: hubCategory === c ? "var(--accent-soft)" : "var(--surface-elevated)", color: hubCategory === c ? "var(--accent)" : "var(--text-secondary)", fontSize: 11 }}>
+              {c}
+            </button>
+          ))}
+        </div>
         <div style={{ display: "grid", gap: 8 }}>
-          {hubCatalog.map((h: any) => (
+          {filteredHubCatalog.map((h: any) => (
             <div key={h.slug} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ color: "var(--text-primary)", fontWeight: 600, fontSize: 13 }}>{h.displayName || h.name || h.slug}</div>
@@ -415,6 +404,42 @@ export default function SkillsPage() {
 
         </div>
       )}
+
+      {/* ClawHub Marketplace (search/filter) */}
+      <div style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 24 }}>
+        <div style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>ClawHub Marketplace Search</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <input
+            value={hubQuery}
+            onChange={(e) => setHubQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && searchHub()}
+            placeholder="Search marketplace skills (e.g. notion, weather, slack)"
+            style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", fontSize: 12 }}
+          />
+          <button onClick={searchHub} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--accent-soft)", color: "var(--accent)", cursor: "pointer" }}>
+            {hubLoading ? "Searching..." : "Search"}
+          </button>
+        </div>
+        {hubResults.length > 0 && (
+          <div style={{ display: "grid", gap: 8 }}>
+            {hubResults.map((h) => (
+              <div key={h.slug} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: "var(--text-primary)", fontWeight: 600, fontSize: 13 }}>{h.name || h.slug}</div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{h.slug}</div>
+                  {h.description && <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 2 }}>{h.description}</div>}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => previewSkillMd(h.slug)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", cursor: "pointer" }}>Preview SKILL.md</button>
+                  <button onClick={() => installFromHub(h.slug)} style={{ display: "inline-flex", gap: 6, alignItems: "center", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", cursor: "pointer" }}>
+                    <Download style={{ width: 14, height: 14 }} /> Install
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
       {/* Detail Modal */}
       {selectedSkill && <SkillDetailModal skill={selectedSkill} onClose={() => setSelectedSkill(null)} />}
 

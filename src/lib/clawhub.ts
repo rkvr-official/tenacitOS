@@ -43,8 +43,10 @@ export function hubInspect(slug: string): any {
 
 export function hubExplore(limit = 200, sort: "newest" | "downloads" | "rating" | "installs" | "installsAllTime" | "trending" = "newest"): any[] {
   const raw = runText(["explore", "--limit", String(limit), "--sort", sort, "--json"]);
-  const parsed = JSON.parse(raw);
-  return parsed.skills || parsed.items || [];
+  const jsonStart = raw.indexOf("{");
+  const safe = jsonStart >= 0 ? raw.slice(jsonStart) : raw;
+  const parsed = JSON.parse(safe);
+  return parsed.items || parsed.skills || [];
 }
 
 export function hubSkillMd(slug: string): string {
