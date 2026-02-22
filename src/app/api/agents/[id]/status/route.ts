@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import { readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 
+function resolveWorkspace(config: any, agentId: string, agentConfig: any): string {
+  if (typeof agentConfig?.workspace === "string" && agentConfig.workspace.length) return agentConfig.workspace;
+  const openclawDir = process.env.OPENCLAW_DIR || "/root/.openclaw";
+  const baseWorkspace = config?.agents?.defaults?.workspace || join(openclawDir, "workspace");
+  const defaultAgentId = config?.heartbeat?.defaultAgentId;
+  if (agentId === defaultAgentId) return baseWorkspace;
+  return `${baseWorkspace}-${agentId}`;
+}
+
 export const dynamic = "force-dynamic";
 
 export async function GET(
@@ -21,8 +30,10 @@ export async function GET(
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
 
+    const workspace = resolveWorkspace(config, id, agent);
+
     // Get memory files
-    const memoryPath = join(agent.workspace, "memory");
+    const memoryPath = join(workspace, "memory");
     let recentFiles: Array<{ date: string; size: number; modified: string }> =
       [];
 
@@ -57,7 +68,7 @@ export async function GET(
         id: agent.id,
         name: agent.name,
         model: agent.model?.primary || config.agents.defaults.model.primary,
-        workspace: agent.workspace,
+        workspace,
         dmPolicy: telegramAccount?.dmPolicy,
         allowAgents: agent.subagents?.allowAgents || [],
         telegramConfigured: !!telegramAccount?.botToken,

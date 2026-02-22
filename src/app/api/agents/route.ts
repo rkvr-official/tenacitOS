@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readFileSync } from "fs";
+import { readFileSync, statSync } from "fs";
 import { join } from "path";
 
 export const dynamic = "force-dynamic";
@@ -26,15 +26,28 @@ interface Agent {
 }
 
 // Fallback config used when an agent doesn't define its own ui config in openclaw.json.
-// The main agent reads name/emoji from env vars; all others fall back to generic defaults.
-// Override via each agent's openclaw.json → ui.emoji / ui.color / name fields.
+// Override via openclaw.json → agents.list[].ui.emoji / ui.color / name.
 const DEFAULT_AGENT_CONFIG: Record<string, { emoji: string; color: string; name?: string }> = {
-  main: {
+  jarvis: {
     emoji: process.env.NEXT_PUBLIC_AGENT_EMOJI || "🤖",
     color: "#ff6b35",
     name: process.env.NEXT_PUBLIC_AGENT_NAME || "Mission Control",
   },
 };
+
+function resolveWorkspace(config: any, agentId: string, agentConfig: any): string {
+  if (typeof agentConfig?.workspace === "string" && agentConfig.workspace.length) return agentConfig.workspace;
+
+  const openclawDir = process.env.OPENCLAW_DIR || "/root/.openclaw";
+  const baseWorkspace = config?.agents?.defaults?.workspace || join(openclawDir, "workspace");
+
+  // Heuristic: the default agent (heartbeat.defaultAgentId) uses the base workspace.
+  const defaultAgentId = config?.heartbeat?.defaultAgentId;
+  if (agentId === defaultAgentId) return baseWorkspace;
+
+  // Other agents are typically `workspace-<agentId>`.
+  return `${baseWorkspace}-${agentId}`;
+}
 
 /**
  * Get agent display info (emoji, color, name) from openclaw.json or defaults
@@ -70,15 +83,17 @@ export async function GET() {
         config.channels?.telegram?.accounts?.[agent.id];
       const botToken = telegramAccount?.botToken;
 
+      const workspace = resolveWorkspace(config, agent.id, agent);
+
       // Check if agent has recent activity
-      const memoryPath = join(agent.workspace, "memory");
+      const memoryPath = join(workspace, "memory");
       let lastActivity = undefined;
       let status: "online" | "offline" = "offline";
 
       try {
         const today = new Date().toISOString().split("T")[0];
         const memoryFile = join(memoryPath, `${today}.md`);
-        const stat = require("fs").statSync(memoryFile);
+        const stat = statSync(memoryFile);
         lastActivity = stat.mtime.toISOString();
         // Consider online if activity within last 5 minutes
         status =
@@ -122,7 +137,7 @@ export async function GET() {
         color: agentInfo.color,
         model:
           agent.model?.primary || config.agents.defaults.model.primary,
-        workspace: agent.workspace,
+        workspace,
         dmPolicy:
           telegramAccount?.dmPolicy ||
           config.channels?.telegram?.dmPolicy ||
