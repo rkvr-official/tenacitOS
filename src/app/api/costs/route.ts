@@ -12,6 +12,43 @@ const DEFAULT_BUDGET = 100.0;
 
 type Deployment = "cloud" | "local" | "all";
 
+let pptCache: { at: number; map: Map<string, any> } | null = null;
+
+function fetchPricePerTokenMap(): Map<string, any> {
+  const now = Date.now();
+  if (pptCache && now - pptCache.at < 60 * 60 * 1000) return pptCache.map;
+
+  const map = new Map<string, any>();
+  try {
+    const raw = execSync("curl -fsSL 'https://pricepertoken.com/_payload.json?75094636-d319-4399-af76-d29349705acb'", { encoding: "utf-8", timeout: 25000 });
+    const arr = JSON.parse(raw);
+    const refs: number[] = Array.isArray(arr?.[5]) ? arr[5] : [];
+
+    const v = (x: any) => (typeof x === "number" && x >= 0 && x < arr.length ? arr[x] : x);
+    for (const ref of refs) {
+      const r = arr?.[ref];
+      if (!r || typeof r !== "object") continue;
+      const model = String(v(r.model) || "").toLowerCase();
+      const slug = String(v(r.slug) || "").toLowerCase();
+      const row = {
+        model,
+        slug,
+        input: Number(v(r.input_price_per_1m_tokens) || 0),
+        output: Number(v(r.output_price_per_1m_tokens) || 0),
+        tps: Number(v(r.tokens_per_second) || 0),
+        intel: v(r.benchmark_intelligence),
+        coding: v(r.benchmark_coding),
+        math: v(r.benchmark_math),
+      };
+      if (model) map.set(model, row);
+      if (slug) map.set(slug, row);
+    }
+  } catch {}
+
+  pptCache = { at: now, map };
+  return map;
+}
+
 function estimateTps(model: string, local: boolean): number {
   const provider = model.split("/")[0] || "unknown";
   if (local) return 18;
@@ -66,6 +103,7 @@ function getSelectedModels(db: any, deployment: Deployment) {
   for (const m of Object.keys(cfg?.agents?.defaults?.models || {})) models.add(m);
 
   const modelMap = getOpenclawModelsMap();
+  const ppt = fetchPricePerTokenMap();
   if (deployment === "local" || deployment === "all") {
     for (const [key, info] of modelMap.entries()) if (info.local) models.add(key);
   }
@@ -88,18 +126,29 @@ function getSelectedModels(db: any, deployment: Deployment) {
     const usage = usageMap.get(normalizeModelId(id)) || usageMap.get(id) || { cost: 0, tokens: 0, agents: "" };
     const agents = String(usage.agents || "").split(",").filter(Boolean);
 
+    const short = String(id).split('/').slice(1).join('/').toLowerCase();
+    const web = ppt.get(short) || ppt.get(String(id).toLowerCase()) || null;
+    const webInput = web?.input != null ? Number(web.input) : null;
+    const webOutput = web?.output != null ? Number(web.output) : null;
+    const finalInput = webInput ?? inputPerM;
+    const finalOutput = webOutput ?? outputPerM;
+
     return {
       model: id,
-      inputPerM,
-      outputPerM,
-      localEstPerM,
+      inputPerM: finalInput,
+      outputPerM: finalOutput,
       source: info.provider,
-      pricingSource: p ? "published/default" : fb ? "provider-default" : "missing",
+      pricingSource: web ? "pricepertoken" : (p ? "published/default" : fb ? "provider-default" : "missing"),
       local: info.local,
       available: info.available,
-      tpsCloud,
+      tpsCloud: web?.tps ? Number(web.tps) : tpsCloud,
       tpsLocal,
-      ranking: modelRankings(id, inputPerM, outputPerM, tpsCloud),
+      benchmarks: {
+        intelligence: web?.intel ?? null,
+        coding: web?.coding ?? null,
+        math: web?.math ?? null,
+      },
+      ranking: modelRankings(id, finalInput, finalOutput, web?.tps ? Number(web.tps) : tpsCloud),
       usageCost: Number(usage.cost || 0),
       usageTokens: Number(usage.tokens || 0),
       agents,

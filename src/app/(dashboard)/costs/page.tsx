@@ -16,7 +16,7 @@ interface CostData {
   byModel: Array<{ model: string; cost: number; tokens: number }>;
   daily: Array<{ date: string; cost: number; input: number; output: number }>;
   hourly: Array<{ hour: string; cost: number }>;
-  modelPricing?: Array<{ model: string; inputPerM: number | null; outputPerM: number | null; localEstPerM: number; source: string; pricingSource: string; local: boolean; available: boolean; tpsCloud: number; tpsLocal: number; agents: string[]; usageCost: number; usageTokens: number; agentCount: number; ranking: { perfPrice: number; complex: string; research: string; thinking: string; speed: number } }>;
+  modelPricing?: Array<{ model: string; inputPerM: number | null; outputPerM: number | null; source: string; pricingSource: string; local: boolean; available: boolean; tpsCloud: number; tpsLocal: number; agents: string[]; usageCost: number; usageTokens: number; agentCount: number; benchmarks: { intelligence: number | null; coding: number | null; math: number | null }; ranking: { perfPrice: number; complex: string; research: string; thinking: string; speed: number } }>;
 }
 
 const COLORS = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#00C7BE', '#30B0C7', '#32ADE6', '#007AFF', '#5856D6', '#AF52DE', '#FF2D55'];
@@ -318,6 +318,23 @@ export default function CostsPage() {
           </div>
         </div>
       )}
+
+      {deployment === "cloud" && (
+        <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+          <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Published Cost per 1M (Most Used Models)</h3>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={pricingRows.slice(0,10).map((r)=>({ model:r.model.split('/').pop(), input:r.inputPerM||0, output:r.outputPerM||0 }))}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="model" stroke="var(--text-muted)" style={{ fontSize: "11px" }} />
+              <YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
+              <Tooltip contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }} />
+              <Legend />
+              <Bar dataKey="input" fill="#60A5FA" name="Input $/1M" />
+              <Bar dataKey="output" fill="#F59E0B" name="Output $/1M" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
       {/* Model Pricing Table */}
       <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
         <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
@@ -332,9 +349,9 @@ export default function CostsPage() {
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Agents #</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Input</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Output</th>
-                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Local Est</th>
-                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Tok/s (cloud/local)</th>
+                                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Tok/s (cloud/local)</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Perf/$</th>
+                <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Bench (I/C/M)</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Complex/Research/Thinking</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Agents</th>
                 <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Source</th>
@@ -348,9 +365,9 @@ export default function CostsPage() {
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.agentCount}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.inputPerM == null ? "N/A" : `$${row.inputPerM}`}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>{row.outputPerM == null ? "N/A" : `$${row.outputPerM}`}</td>
-                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-primary)" }}>${row.localEstPerM}</td>
-                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.tpsCloud}/{row.tpsLocal}</td>
+                                    <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.tpsCloud}/{row.tpsLocal}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.ranking?.perfPrice ?? '-'}</td>
+                  <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{`${row.benchmarks?.intelligence ?? "-"}/${row.benchmarks?.coding ?? "-"}/${row.benchmarks?.math ?? "-"}`}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{`${row.ranking?.complex || '-'} / ${row.ranking?.research || '-'} / ${row.ranking?.thinking || '-'}`}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{(row.agents || []).join(", ") || "-"}</td>
                   <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{row.source} · {row.pricingSource}</td>
