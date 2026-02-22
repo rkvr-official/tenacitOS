@@ -13,6 +13,8 @@ export interface OpenclawAgent {
   model: string;
   workspace: string;
   status: "online" | "offline";
+  currentState: "ACTIVE" | "IDLE" | "SLEEPING";
+  isOrchestrator: boolean;
   lastActivity?: string;
   activeSessions: number;
 }
@@ -82,40 +84,75 @@ function getAgentDisplayInfo(agentId: string, agentConfig: any): { emoji: string
   };
 }
 
+function resolveWorkspace(agent: any): string {
+  if (typeof agent?.workspace === "string" && agent.workspace.length > 0) {
+    return agent.workspace;
+  }
+
+  const candidates = [
+    path.join(OPENCLAW_DIR, `workspace-${agent.id}`),
+    path.join(OPENCLAW_DIR, "workspace", agent.id),
+    path.join(OPENCLAW_DIR, "workspace"),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+
+  return path.join(OPENCLAW_DIR, "workspace");
+}
+
 export function getAgents(): OpenclawAgent[] {
   const config = JSON.parse(readFileSync(OPENCLAW_CONFIG, "utf-8"));
   const sessions = getAgentSessionsById();
 
   return (config.agents?.list || []).map((agent: any) => {
     const info = getAgentDisplayInfo(agent.id, agent);
-    const memoryFile = path.join(agent.workspace, "memory", `${new Date().toISOString().split("T")[0]}.md`);
+    const workspace = resolveWorkspace(agent);
+    const memoryFile = path.join(workspace, "memory", `${new Date().toISOString().split("T")[0]}.md`);
 
     let status: "online" | "offline" = "offline";
+    let currentState: "ACTIVE" | "IDLE" | "SLEEPING" = "SLEEPING";
     let lastActivity: string | undefined;
 
     if (existsSync(memoryFile)) {
       const st = statSync(memoryFile);
       lastActivity = st.mtime.toISOString();
-      status = Date.now() - st.mtime.getTime() < 5 * 60 * 1000 ? "online" : "offline";
+      const deltaMs = Date.now() - st.mtime.getTime();
+      status = deltaMs < 5 * 60 * 1000 ? "online" : "offline";
+      if (deltaMs < 5 * 60 * 1000) currentState = "ACTIVE";
+      else if (deltaMs < 30 * 60 * 1000) currentState = "IDLE";
+      else currentState = "SLEEPING";
     }
+
+    const activeSessions = (sessions[agent.id] || []).length;
+    const isOrchestrator = Array.isArray(agent?.subagents?.allowAgents) && agent.subagents.allowAgents.length > 0;
 
     return {
       id: agent.id,
       name: agent.name || info.name,
-      emoji: info.emoji,
+      emoji: agent.identity?.emoji || info.emoji,
       color: info.color,
       model: agent.model?.primary || config.agents?.defaults?.model?.primary || "unknown",
-      workspace: agent.workspace,
+      workspace,
       status,
+      currentState,
+      isOrchestrator,
       lastActivity,
-      activeSessions: (sessions[agent.id] || []).length,
+      activeSessions,
     } satisfies OpenclawAgent;
   });
 }
 
 function getAgentSessionsById(): Record<string, AgentSession[]> {
-  const payload = runOpenclawJson(["sessions", "list"]);
-  const rawSessions: RawSession[] = payload.sessions || [];
+  let rawSessions: RawSession[] = [];
+  try {
+    const payload = runOpenclawJson(["sessions", "list"]);
+    rawSessions = payload.sessions || [];
+  } catch {
+    return {};
+  }
+
   const grouped: Record<string, AgentSession[]> = {};
 
   for (const s of rawSessions) {

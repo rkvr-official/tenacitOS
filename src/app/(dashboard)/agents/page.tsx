@@ -12,6 +12,8 @@ interface Agent {
   model: string;
   workspace: string;
   status: "online" | "offline";
+  currentState: "ACTIVE" | "IDLE" | "SLEEPING";
+  isOrchestrator: boolean;
   lastActivity?: string;
   activeSessions: number;
 }
@@ -167,8 +169,16 @@ export default function AgentsPage() {
                 <div className="flex items-center gap-3">
                   <div className="text-2xl">{agent.emoji}</div>
                   <div>
-                    <div className="font-bold" style={{ color: "var(--text-primary)" }}>{agent.name}</div>
+                    <div className="font-bold" style={{ color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 8 }}>
+                      {agent.name}
+                      {agent.isOrchestrator && (
+                        <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 999, background: "rgba(255,59,48,0.15)", color: "var(--accent)", border: "1px solid var(--border)" }}>
+                          ORCHESTRATOR
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs" style={{ color: "var(--text-muted)" }}>{agent.model}</div>
+                    <div className="text-xs" style={{ color: "var(--text-secondary)", marginTop: 2 }}>State: {agent.currentState}</div>
                   </div>
                 </div>
                 <Circle className="w-2 h-2" style={{ fill: agent.status === "online" ? "#4ade80" : "#6b7280", color: agent.status === "online" ? "#4ade80" : "#6b7280" }} />
