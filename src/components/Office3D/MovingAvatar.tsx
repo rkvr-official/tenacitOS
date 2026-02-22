@@ -13,7 +13,7 @@ interface Obstacle {
 
 interface MovingAvatarProps {
   agent: AgentConfig;
-  state: AgentState;
+  state?: AgentState;
   officeBounds: {
     minX: number;
     maxX: number;
@@ -25,6 +25,8 @@ interface MovingAvatarProps {
   onPositionUpdate: (id: string, pos: Vector3) => void;
 }
 
+const FALLBACK_STATE: AgentState = { id: "unknown", status: "idle" };
+
 export default function MovingAvatar({ 
   agent, 
   state, 
@@ -33,6 +35,7 @@ export default function MovingAvatar({
   otherAvatarPositions,
   onPositionUpdate 
 }: MovingAvatarProps) {
+  const safeState = state ?? { ...FALLBACK_STATE, id: agent.id };
   const groupRef = useRef<Group>(null);
   
   // Posición inicial completamente aleatoria SIN colisiones
@@ -121,7 +124,7 @@ export default function MovingAvatar({
     // Thinking: moverse muy poco
     // Error: quedarse quieto
     const getInterval = () => {
-      switch (state.status) {
+      switch (safeState.status) {
         case 'idle':
           return 3000 + Math.random() * 3000; // 3-6s
         case 'working':
@@ -143,13 +146,13 @@ export default function MovingAvatar({
       clearTimeout(timeout);
       clearInterval(interval);
     };
-  }, [state.status]);
+  }, [safeState.status]);
 
   // Mover suavemente hacia el objetivo
   useFrame((frameState, delta) => {
     if (!groupRef.current) return;
 
-    const speed = state.status === 'idle' ? 1.5 : 0.8; // idle se mueve más rápido
+    const speed = safeState.status === 'idle' ? 1.5 : 0.8; // idle se mueve más rápido
     const moveSpeed = delta * speed;
 
     // Calcular nueva posición
@@ -185,9 +188,9 @@ export default function MovingAvatar({
       <VoxelAvatar
         agent={agent}
         position={[0, 0, 0]}
-        isWorking={state.status === 'working'}
-        isThinking={state.status === 'thinking'}
-        isError={state.status === 'error'}
+        isWorking={safeState.status === 'working'}
+        isThinking={safeState.status === 'thinking'}
+        isError={safeState.status === 'error'}
       />
     </group>
   );

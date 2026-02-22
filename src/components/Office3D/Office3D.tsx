@@ -2,10 +2,10 @@
 
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Sky, Environment } from '@react-three/drei';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Vector3 } from 'three';
-import { AGENTS } from './agentsConfig';
-import type { AgentState } from './agentsConfig';
+import { getOfficePosition } from './agentsConfig';
+import type { AgentConfig, AgentState } from './agentsConfig';
 import AgentDesk from './AgentDesk';
 import Floor from './Floor';
 import Walls from './Walls';
@@ -19,21 +19,73 @@ import WallClock from './WallClock';
 import FirstPersonControls from './FirstPersonControls';
 import MovingAvatar from './MovingAvatar';
 
+type AgentsApiResponse = {
+  agents: Array<{
+    id: string;
+    name?: string;
+    emoji: string;
+    color: string;
+    model: string;
+    status: 'online' | 'offline';
+    lastActivity?: string;
+  }>;
+};
+
 export default function Office3D() {
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [interactionModal, setInteractionModal] = useState<string | null>(null);
   const [controlMode, setControlMode] = useState<'orbit' | 'fps'>('orbit');
   const [avatarPositions, setAvatarPositions] = useState<Map<string, any>>(new Map());
-  
-  // Mock data - TODO: Replace with real API data
-  const [agentStates] = useState<Record<string, AgentState>>({
-    main: { id: 'main', status: 'working', currentTask: 'Procesando emails', model: 'opus', tokensPerHour: 15000, tasksInQueue: 3, uptime: 12 },
-    academic: { id: 'academic', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 8 },
-    studio: { id: 'studio', status: 'thinking', currentTask: 'Generando guión YouTube', model: 'opus', tokensPerHour: 8000, tasksInQueue: 1, uptime: 5 },
-    linkedin: { id: 'linkedin', status: 'working', currentTask: 'Redactando post', model: 'sonnet', tokensPerHour: 5000, tasksInQueue: 2, uptime: 10 },
-    social: { id: 'social', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 7 },
-    infra: { id: 'infra', status: 'error', currentTask: 'Failed deployment', model: 'haiku', tokensPerHour: 1000, tasksInQueue: 0, uptime: 15 },
-  });
+
+  const [agents, setAgents] = useState<AgentConfig[]>([]);
+  const [agentStates, setAgentStates] = useState<Record<string, AgentState>>({});
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        setLoadError(null);
+        const res = await fetch('/api/agents', { cache: 'no-store' });
+        if (!res.ok) throw new Error(`agents_fetch_failed_${res.status}`);
+        const data = (await res.json()) as AgentsApiResponse;
+
+        const nextAgents: AgentConfig[] = (data.agents ?? []).map((a, idx) => ({
+          id: a.id,
+          name: a.name ?? a.id,
+          emoji: a.emoji ?? '🤖',
+          color: a.color ?? '#666666',
+          position: getOfficePosition(a.id, idx),
+          role: 'Agent',
+        }));
+
+        const nextStates: Record<string, AgentState> = {};
+        for (const a of data.agents ?? []) {
+          // We only have coarse health in /api/agents today.
+          // Map it to something the 3D office can display without crashing.
+          nextStates[a.id] = {
+            id: a.id,
+            status: a.status === 'online' ? 'working' : 'idle',
+            model: a.model,
+            currentTask: a.status === 'online' ? 'Active' : undefined,
+          };
+        }
+
+        if (cancelled) return;
+        setAgents(nextAgents);
+        setAgentStates(nextStates);
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : 'agents_load_failed');
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleDeskClick = (agentId: string) => {
     setSelectedAgent(agentId);
@@ -63,10 +115,12 @@ export default function Office3D() {
     setAvatarPositions(prev => new Map(prev).set(id, position));
   };
 
+  const agentsWithPositions = useMemo(() => agents, [agents]);
+
   // Definir obstáculos (muebles)
   const obstacles = [
-    // Escritorios (6)
-    ...AGENTS.map(agent => ({
+    // Escritorios
+    ...agentsWithPositions.map(agent => ({
       position: new Vector3(agent.position[0], 0, agent.position[2]),
       radius: 1.5
     })),
@@ -111,7 +165,7 @@ export default function Office3D() {
           <Walls />
 
           {/* Escritorios de agentes (sin avatares) */}
-          {AGENTS.map((agent) => (
+          {agentsWithPositions.map((agent) => (
             <AgentDesk
               key={agent.id}
               agent={agent}
@@ -122,7 +176,7 @@ export default function Office3D() {
           ))}
 
           {/* Avatares móviles */}
-          {AGENTS.map((agent) => (
+          {agentsWithPositions.map((agent) => (
             <MovingAvatar
               key={`avatar-${agent.id}`}
               agent={agent}
@@ -177,7 +231,7 @@ export default function Office3D() {
       {/* Panel lateral cuando se selecciona un agente */}
       {selectedAgent && (
         <AgentPanel
-          agent={AGENTS.find(a => a.id === selectedAgent)!}
+          agent={agentsWithPositions.find(a => a.id === selectedAgent)!}
           state={agentStates[selectedAgent]}
           onClose={handleClosePanel}
         />
@@ -280,6 +334,11 @@ export default function Office3D() {
 
       {/* Controles UI overlay */}
       <div className="absolute top-4 left-4 bg-black/70 text-white p-4 rounded-lg backdrop-blur-sm">
+        {loadError ? (
+          <div className="mb-3 text-xs text-red-300">
+            Office data failed to load ({loadError}). Rendering placeholders.
+          </div>
+        ) : null}
         <h2 className="text-lg font-bold mb-2">🏢 The Office</h2>
         <div className="text-sm space-y-1 mb-3">
           <p><strong>Mode: {controlMode === 'orbit' ? '🖱️ Orbit' : '🎮 FPS'}</strong></p>
