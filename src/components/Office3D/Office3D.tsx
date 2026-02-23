@@ -133,7 +133,8 @@ export default function Office3D() {
     };
 
     load();
-    const i = setInterval(load, 2500);
+    // Poll a bit slower to reduce CPU/IO and keep UI responsive.
+    const i = setInterval(load, 5000);
     return () => {
       cancelled = true;
       clearInterval(i);

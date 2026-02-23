@@ -61,12 +61,23 @@ export interface SessionMessage {
   toolName?: string;
 }
 
+const _openclawCache = new Map<string, { expiresAt: number; value: any }>();
+
 export function runOpenclawJson(args: string[]): any {
+  // Micro-cache to avoid hammering the CLI during hydration bursts (Office/Agents/System panels).
+  // This reduces latency + prevents event-loop stalls from multiple back-to-back execFileSync calls.
+  const key = JSON.stringify(args);
+  const now = Date.now();
+  const cached = _openclawCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.value;
+
   const output = execFileSync("openclaw", [...args, "--json"], {
     encoding: "utf-8",
     timeout: 15000,
   });
-  return JSON.parse(output);
+  const value = JSON.parse(output);
+  _openclawCache.set(key, { expiresAt: now + 1500, value });
+  return value;
 }
 
 function getAgentDisplayInfo(agentId: string, agentConfig: any): { emoji: string; color: string; name: string } {
