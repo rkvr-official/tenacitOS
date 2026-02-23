@@ -1,7 +1,6 @@
 'use client';
 
 import { X } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import type { AgentConfig, AgentState } from './agentsConfig';
 
 interface AgentPanelProps {
@@ -11,7 +10,6 @@ interface AgentPanelProps {
 }
 
 export default function AgentPanel({ agent, state, onClose }: AgentPanelProps) {
-  const router = useRouter();
   const getStatusColor = () => {
     switch (state.status) {
       case 'working': return 'text-green-500';
@@ -33,7 +31,7 @@ export default function AgentPanel({ agent, state, onClose }: AgentPanelProps) {
   };
 
   return (
-    <div className="absolute right-0 top-0 h-full w-96 bg-black/90 backdrop-blur-md text-white p-6 shadow-2xl border-l border-white/10 z-50 pointer-events-auto">
+    <div className="absolute right-0 top-0 h-full w-96 bg-black/90 backdrop-blur-md text-white p-6 shadow-2xl border-l border-white/10">
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
@@ -121,32 +119,16 @@ export default function AgentPanel({ agent, state, onClose }: AgentPanelProps) {
       <div className="mt-6 pt-6 border-t border-white/10">
         <h3 className="text-sm font-semibold text-gray-400 mb-3">Quick Actions</h3>
         <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => router.push(`/agents`)}
-            className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors"
-            title="Open the Agents page (messaging wiring TBD)"
-          >
+          <button className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
             Send Message
           </button>
-          <button
-            onClick={() => router.push(`/sessions`)}
-            className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors"
-            title="Open Sessions history"
-          >
+          <button className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
             View History
           </button>
-          <button
-            onClick={() => router.push(`/settings`)}
-            className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors"
-            title="Open Settings (per-agent model switching not yet implemented)"
-          >
+          <button className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
             Change Model
           </button>
-          <button
-            onClick={() => router.push(`/actions`)}
-            className="px-3 py-2 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-sm transition-colors text-red-400"
-            title="Open Actions (kill/cancel wiring TBD)"
-          >
+          <button className="px-3 py-2 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-sm transition-colors text-red-400">
             Kill Task
           </button>
         </div>

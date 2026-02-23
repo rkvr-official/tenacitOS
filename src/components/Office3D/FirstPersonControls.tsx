@@ -7,12 +7,13 @@ import * as THREE from 'three';
 
 interface FirstPersonControlsProps {
   moveSpeed?: number;
+  obstacles?: Array<{ x: number; z: number; radius: number }>;
 }
 
-export default function FirstPersonControls({ moveSpeed = 5 }: FirstPersonControlsProps) {
+export default function FirstPersonControls({ moveSpeed = 5, obstacles = [] }: FirstPersonControlsProps) {
   const { camera } = useThree();
   const controlsRef = useRef<any>(null);
-  
+
   const moveState = useRef({
     forward: false,
     backward: false,
@@ -23,7 +24,6 @@ export default function FirstPersonControls({ moveSpeed = 5 }: FirstPersonContro
   });
 
   const velocity = useRef(new THREE.Vector3());
-  const direction = useRef(new THREE.Vector3());
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -91,7 +91,7 @@ export default function FirstPersonControls({ moveSpeed = 5 }: FirstPersonContro
     };
   }, []);
 
-  useFrame((state, delta) => {
+  useFrame((_, delta) => {
     if (!controlsRef.current?.isLocked) return;
 
     const speed = moveSpeed * delta;
@@ -105,10 +105,9 @@ export default function FirstPersonControls({ moveSpeed = 5 }: FirstPersonContro
     if (moveState.current.up) velocity.current.y += speed;
     if (moveState.current.down) velocity.current.y -= speed;
 
-    // Apply movement relative to camera direction
     const cameraDirection = new THREE.Vector3();
     camera.getWorldDirection(cameraDirection);
-    cameraDirection.y = 0; // Keep movement horizontal
+    cameraDirection.y = 0;
     cameraDirection.normalize();
 
     const cameraRight = new THREE.Vector3();
@@ -119,12 +118,27 @@ export default function FirstPersonControls({ moveSpeed = 5 }: FirstPersonContro
     movement.addScaledVector(cameraRight, velocity.current.x);
     movement.y = velocity.current.y;
 
-    camera.position.add(movement);
+    const nextPosition = camera.position.clone().add(movement);
 
-    // Boundaries (keep camera inside office)
-    camera.position.x = Math.max(-9, Math.min(9, camera.position.x));
-    camera.position.y = Math.max(1, Math.min(8, camera.position.y));
-    camera.position.z = Math.max(-8, Math.min(8, camera.position.z));
+    nextPosition.x = Math.max(-9, Math.min(9, nextPosition.x));
+    nextPosition.y = Math.max(1, Math.min(8, nextPosition.y));
+    nextPosition.z = Math.max(-8, Math.min(8, nextPosition.z));
+
+    const cameraRadius = 0.45;
+    let blocked = false;
+    for (const obstacle of obstacles) {
+      const dx = nextPosition.x - obstacle.x;
+      const dz = nextPosition.z - obstacle.z;
+      const minDist = obstacle.radius + cameraRadius;
+      if (dx * dx + dz * dz < minDist * minDist) {
+        blocked = true;
+        break;
+      }
+    }
+
+    if (!blocked) {
+      camera.position.copy(nextPosition);
+    }
   });
 
   return <PointerLockControls ref={controlsRef} />;

@@ -23,7 +23,7 @@ interface ActionButton {
   id: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  color: "emerald" | "blue" | "yellow" | "red";
+  tone: "neutral" | "safe" | "warn" | "danger";
   action: () => Promise<void> | void;
 }
 
@@ -58,7 +58,7 @@ export function QuickActions({ onActionComplete, onActionLog }: QuickActionsProp
       }
 
       const rawOutput = String(data.output || "");
-      const output = rawOutput.slice(0, 160).replace(/\n+/g, " · ");
+      const output = rawOutput.slice(0, 180).replace(/\n+/g, " · ");
       showNotification("success", `${action} ok${output ? `: ${output}` : ""}`);
       appendLog(`${action} ✅\n${rawOutput || "(no output)"}`);
       onActionComplete?.();
@@ -98,111 +98,109 @@ export function QuickActions({ onActionComplete, onActionLog }: QuickActionsProp
       id: "restart_gateway",
       label: "Restart Gateway",
       icon: RefreshCw,
-      color: "blue",
+      tone: "warn",
       action: () => callAction("restart_gateway", "restart-gateway"),
     },
     {
       id: "gateway_status",
       label: "Gateway Status",
       icon: Activity,
-      color: "emerald",
+      tone: "safe",
       action: () => callAction("gateway_status", "gateway-status"),
     },
     {
       id: "openclaw_status",
       label: "OpenClaw Status",
       icon: Activity,
-      color: "emerald",
+      tone: "safe",
       action: () => callAction("openclaw_status", "openclaw-status"),
     },
     {
       id: "sessions",
       label: "Sessions List",
       icon: FileText,
-      color: "blue",
+      tone: "neutral",
       action: () => callAction("sessions", "sessions-list"),
     },
     {
       id: "models",
       label: "Models List",
       icon: FileText,
-      color: "blue",
+      tone: "neutral",
       action: () => callAction("models", "models-list"),
     },
     {
       id: "cron",
       label: "Cron Jobs",
       icon: FileText,
-      color: "blue",
+      tone: "neutral",
       action: () => callAction("cron", "cron-list"),
     },
     {
       id: "heartbeat",
       label: "Run Health Check",
       icon: Activity,
-      color: "emerald",
+      tone: "safe",
       action: () => callAction("heartbeat", "heartbeat"),
     },
     {
       id: "usage",
       label: "Usage Snapshot",
       icon: Cpu,
-      color: "yellow",
+      tone: "neutral",
       action: () => callAction("usage", "usage-stats"),
-    },
-    {
-      id: "clear_log",
-      label: "Clear Activity Log",
-      icon: Trash2,
-      color: "yellow",
-      action: handleClearActivityLog,
     },
     {
       id: "git_status",
       label: "Workspace Git Status",
       icon: FileText,
-      color: "emerald",
+      tone: "safe",
       action: () => callAction("git_status", "git-status"),
+    },
+    {
+      id: "clear_log",
+      label: "Clear Activity Log",
+      icon: Trash2,
+      tone: "warn",
+      action: handleClearActivityLog,
     },
     {
       id: "change_password",
       label: "Change Password",
       icon: Key,
-      color: "red",
+      tone: "danger",
       action: () => setShowPasswordModal(true),
     },
   ];
 
-  const colorClasses = {
-    emerald:
-      "bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20",
-    blue: "bg-blue-500/10 text-blue-400 border-blue-500/30 hover:bg-blue-500/20",
-    yellow:
-      "bg-yellow-500/10 text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/20",
-    red: "bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20",
+  const toneStyle: Record<ActionButton["tone"], { bg: string; color: string; border: string }> = {
+    neutral: { bg: "var(--surface-elevated)", color: "var(--text-primary)", border: "var(--border)" },
+    safe: { bg: "rgba(52, 199, 89, 0.12)", color: "var(--success)", border: "rgba(52, 199, 89, 0.32)" },
+    warn: { bg: "rgba(245, 158, 11, 0.12)", color: "var(--warning)", border: "rgba(245, 158, 11, 0.32)" },
+    danger: { bg: "rgba(239, 68, 68, 0.12)", color: "var(--error)", border: "rgba(239, 68, 68, 0.32)" },
   };
 
   return (
     <>
-      <div className="bg-gray-900 rounded-xl p-6">
-        <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
-          <RefreshCw className="w-5 h-5 text-emerald-400" />
+      <div className="rounded-xl p-6" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+        <h2 className="text-xl font-semibold mb-1 flex items-center gap-2" style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
+          <RefreshCw className="w-5 h-5" style={{ color: "var(--accent)" }} />
           Quick Actions
         </h2>
+        <p className="text-xs mb-5" style={{ color: "var(--text-muted)" }}>
+          Operational shortcuts for runtime checks and maintenance.
+        </p>
 
         {notification && (
           <div
-            className={`flex items-center gap-2 p-3 rounded-lg mb-4 ${
-              notification.type === "success"
-                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                : "bg-red-500/10 text-red-400 border border-red-500/30"
-            }`}
+            className="flex items-center gap-2 p-3 rounded-lg mb-4"
+            style={{
+              backgroundColor: notification.type === "success" ? "rgba(52, 199, 89, 0.12)" : "rgba(239, 68, 68, 0.12)",
+              color: notification.type === "success" ? "var(--success)" : "var(--error)",
+              border: `1px solid ${notification.type === "success" ? "rgba(52, 199, 89, 0.32)" : "rgba(239, 68, 68, 0.32)"}`,
+            }}
           >
-            {notification.type === "success" ? (
-              <CheckCircle className="w-4 h-4" />
-            ) : (
-              <AlertCircle className="w-4 h-4" />
-            )}
+            {notification.type === "success" ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
             <span className="text-sm">{notification.message}</span>
           </div>
         )}
@@ -211,22 +209,18 @@ export function QuickActions({ onActionComplete, onActionLog }: QuickActionsProp
           {actions.map((action) => {
             const Icon = action.icon;
             const isLoading = loadingAction === action.id;
+            const tone = toneStyle[action.tone];
 
             return (
               <button
                 key={action.id}
                 onClick={() => action.action()}
                 disabled={isLoading}
-                className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  colorClasses[action.color]
-                }`}
+                className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ backgroundColor: tone.bg, color: tone.color, borderColor: tone.border }}
               >
-                {isLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Icon className="w-4 h-4" />
-                )}
-                <span className="font-medium">{action.label}</span>
+                {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Icon className="w-4 h-4" />}
+                <span className="font-medium text-sm">{action.label}</span>
               </button>
             );
           })}

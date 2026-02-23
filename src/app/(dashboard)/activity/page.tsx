@@ -48,26 +48,40 @@ interface ActivitiesResponse {
 
 const typeIcons: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
   file: FileText,
+  file_read: FileText,
+  file_write: FileText,
   search: Search,
+  web_search: Search,
   message: MessageSquare,
+  message_sent: MessageSquare,
   command: Terminal,
   security: Shield,
   build: Wrench,
   task: Zap,
+  tool_call: Wrench,
+  agent_action: Brain,
   cron: RotateCcw,
+  cron_run: RotateCcw,
   memory: Brain,
   default: Zap,
 };
 
 const typeColorVars: Record<string, string> = {
   file: "--type-file",
+  file_read: "--type-file",
+  file_write: "--type-file",
   search: "--type-search",
+  web_search: "--type-search",
   message: "--type-message",
+  message_sent: "--type-message",
   command: "--type-command",
   security: "--type-security",
   build: "--type-build",
   task: "--type-task",
+  tool_call: "--type-task",
+  agent_action: "--type-memory",
   cron: "--type-cron",
+  cron_run: "--type-cron",
   memory: "--type-memory",
 };
 
@@ -77,7 +91,19 @@ const statusConfig: Record<string, { icon: React.ComponentType<{ className?: str
   pending: { icon: Clock, colorVar: "--warning" },
 };
 
-const allTypes = ["file", "search", "message", "command", "security", "build", "task", "cron", "memory"];
+const allTypes = [
+  "file",
+  "search",
+  "message",
+  "command",
+  "security",
+  "build",
+  "task",
+  "cron",
+  "memory",
+  "cron_run",
+  "agent_action",
+];
 
 const datePresets = [
   { label: "Today", days: 0 },
@@ -99,7 +125,7 @@ function formatTokens(tokens: number): string {
 
 export default function ActivityPage() {
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -108,6 +134,7 @@ export default function ActivityPage() {
   // Filters
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterAgent, setFilterAgent] = useState<string>("");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [sort, setSort] = useState<"newest" | "oldest">("newest");
@@ -139,6 +166,10 @@ export default function ActivityPage() {
       if (filterStatus !== "all") {
         params.set("status", filterStatus);
       }
+
+      if (filterAgent) {
+        params.set("agent", filterAgent);
+      }
       
       if (startDate) {
         params.set("startDate", startDate);
@@ -157,9 +188,14 @@ export default function ActivityPage() {
       }
       
       if (append) {
-        setActivities((prev) => [...prev, ...filteredActivities]);
+        setActivities((prev) => {
+          const next = [...prev, ...filteredActivities];
+          try { localStorage.setItem("activity_page_cache", JSON.stringify({ activities: next, total: data.total })); } catch {}
+          return next;
+        });
       } else {
         setActivities(filteredActivities);
+        try { localStorage.setItem("activity_page_cache", JSON.stringify({ activities: filteredActivities, total: data.total })); } catch {}
       }
       
       setTotal(data.total);
@@ -174,18 +210,36 @@ export default function ActivityPage() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [offset, sort, selectedTypes, filterStatus, startDate, endDate]);
+  }, [offset, sort, selectedTypes, filterStatus, filterAgent, startDate, endDate]);
 
   useEffect(() => {
     setOffset(0);
     fetchActivities(false);
-  }, [sort, selectedTypes, filterStatus, startDate, endDate]);
+  }, [sort, selectedTypes, filterStatus, filterAgent, startDate, endDate]);
+
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem("activity_page_cache");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setActivities(Array.isArray(parsed.activities) ? parsed.activities : []);
+        setTotal(typeof parsed.total === "number" ? parsed.total : 0);
+      }
+    } catch {}
+  }, []);
 
   useEffect(() => {
     const end = format(endOfDay(new Date()), "yyyy-MM-dd");
     const start = format(startOfDay(subDays(new Date(), 7)), "yyyy-MM-dd");
     setStartDate(start);
     setEndDate(end);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const agent = params.get("agent") || "";
+    if (agent) setFilterAgent(agent);
   }, []);
 
   const handlePresetClick = (days: number, index: number) => {
@@ -225,16 +279,6 @@ export default function ActivityPage() {
     fetchActivities(true);
   };
 
-  if (loading) {
-    return (
-      <div style={{ padding: '2rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3rem 0' }}>
-          <RefreshCw className="w-8 h-8 animate-spin" style={{ color: 'var(--accent)' }} />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="p-4 md:p-8">
       <div className="mb-4 md:mb-8 flex items-start justify-between">
@@ -246,6 +290,11 @@ export default function ActivityPage() {
             Activity Log
           </h1>
           <p style={{ color: 'var(--text-secondary)' }}>Complete history of agent actions</p>
+          {filterAgent && (
+            <div style={{ marginTop: '0.35rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              Filtered agent: <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{filterAgent}</span>
+            </div>
+          )}
         </div>
         <a
           href="/api/activities?format=csv&limit=10000"
@@ -262,6 +311,20 @@ export default function ActivityPage() {
           Export CSV
         </a>
       </div>
+
+      {loading && (
+        <div style={{
+          marginBottom: '0.75rem',
+          padding: '0.65rem 0.9rem',
+          borderRadius: '0.5rem',
+          backgroundColor: 'var(--card-elevated)',
+          border: '1px solid var(--border)',
+          color: 'var(--text-muted)',
+          fontSize: '0.82rem'
+        }}>
+          Updating activity stream from OpenClaw…
+        </div>
+      )}
 
       {/* Activity Heatmap */}
       <div className="mb-4 md:mb-6">

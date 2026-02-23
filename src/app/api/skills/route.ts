@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { scanAllSkills } from '@/lib/skill-parser';
 
+export const revalidate = 300;
+
 export async function GET() {
   try {
     const skills = scanAllSkills();

@@ -4,7 +4,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Sky, Environment } from '@react-three/drei';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Vector3 } from 'three';
-import { getOfficePosition } from './agentsConfig';
+import { AGENTS as STATIC_AGENTS } from './agentsConfig';
 import type { AgentConfig, AgentState } from './agentsConfig';
 import AgentDesk from './AgentDesk';
 import Floor from './Floor';
@@ -19,72 +19,122 @@ import WallClock from './WallClock';
 import FirstPersonControls from './FirstPersonControls';
 import MovingAvatar from './MovingAvatar';
 
-type AgentsApiResponse = {
-  agents: Array<{
-    id: string;
-    name?: string;
-    emoji: string;
-    color: string;
-    model: string;
-    status: 'online' | 'offline';
-    lastActivity?: string;
-  }>;
-};
-
 export default function Office3D() {
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [interactionModal, setInteractionModal] = useState<string | null>(null);
   const [controlMode, setControlMode] = useState<'orbit' | 'fps'>('orbit');
-  const [avatarPositions, setAvatarPositions] = useState<Map<string, any>>(new Map());
+  const [avatarPositions, setAvatarPositions] = useState<Map<string, Vector3>>(new Map());
+  
+  const [agents, setAgents] = useState<AgentConfig[]>(STATIC_AGENTS);
 
-  const [agents, setAgents] = useState<AgentConfig[]>([]);
-  const [agentStates, setAgentStates] = useState<Record<string, AgentState>>({});
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // Agent state comes from /api/office when available; fallback to deterministic mock.
+  const [agentStates, setAgentStates] = useState<Record<string, AgentState>>(() => {
+    const statuses: AgentState['status'][] = ['working', 'idle', 'thinking', 'working', 'idle', 'error'];
+    return Object.fromEntries(
+      STATIC_AGENTS.map((a, idx) => [
+        a.id,
+        {
+          id: a.id,
+          status: statuses[idx % statuses.length],
+          currentTask:
+            statuses[idx % statuses.length] === 'working'
+              ? 'Running tasks…'
+              : statuses[idx % statuses.length] === 'thinking'
+                ? 'Reasoning…'
+                : undefined,
+          model: ['opus', 'sonnet', 'haiku'][idx % 3],
+          tokensPerHour: statuses[idx % statuses.length] === 'idle' ? 0 : 5000 + idx * 1000,
+          tasksInQueue: statuses[idx % statuses.length] === 'idle' ? 0 : 1 + (idx % 3),
+          uptime: 5 + idx,
+        } satisfies AgentState,
+      ])
+    );
+  });
+
+  const OFFICE_POSITIONS = useMemo(() => {
+    // Positions by agent id. Uses the baked layout for known ids; otherwise assigns free desks.
+    const map = new Map<string, [number, number, number]>();
+    for (const a of STATIC_AGENTS) map.set(a.id, a.position);
+    return map;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
+    const load = async () => {
       try {
-        setLoadError(null);
         const res = await fetch('/api/office', { cache: 'no-store' });
-        if (!res.ok) throw new Error(`office_fetch_failed_${res.status}`);
-        const data = (await res.json()) as { agents: Array<{ id: string; name: string; emoji: string; color: string; role?: string; currentTask?: string; status?: 'working'|'thinking'|'idle'|'error'|'sleeping' }> };
+        const json = await res.json();
+        const apiAgents = (json?.agents ?? []) as Array<{
+          id: string;
+          name: string;
+          emoji: string;
+          color: string;
+          role: string;
+          currentTask?: string;
+          isActive?: boolean;
+        }>;
 
-        const nextAgents: AgentConfig[] = (data.agents ?? []).map((a, idx) => ({
-          id: a.id,
-          name: a.name ?? a.id,
-          emoji: a.emoji ?? '🤖',
-          color: a.color ?? '#666666',
-          position: getOfficePosition(a.id, idx),
-          role: a.role ?? 'Agent',
-        }));
+        if (!Array.isArray(apiAgents) || apiAgents.length === 0) return;
+
+        // Ensure unique ids (duplicate ids cause avatars to collapse into one position/state)
+        const seen = new Set<string>();
+        const uniqueApiAgents = apiAgents.filter((a) => {
+          if (!a?.id || seen.has(a.id)) return false;
+          seen.add(a.id);
+          return true;
+        });
+
+        const nextAgents: AgentConfig[] = uniqueApiAgents.map((a, idx) => {
+          const pos = OFFICE_POSITIONS.get(a.id) ?? STATIC_AGENTS[idx % STATIC_AGENTS.length].position;
+          return {
+            id: a.id,
+            name: a.name ?? a.id,
+            emoji: a.emoji ?? '🤖',
+            position: pos,
+            color: a.color ?? '#666',
+            role: a.role ?? 'Agent',
+          };
+        });
 
         const nextStates: Record<string, AgentState> = {};
-        for (const a of data.agents ?? []) {
-          const mapped = a.status === 'working' || a.status === 'thinking' || a.status === 'idle' || a.status === 'error' ? a.status : 'idle';
+        for (const a of uniqueApiAgents) {
+          const task = a.currentTask ?? '';
+          let status: AgentState['status'] = 'idle';
+          const normalized = task.toUpperCase();
+          if (normalized.startsWith('ACTIVE')) status = 'working';
+          else if (normalized.startsWith('THINKING')) status = 'thinking';
+          else if (normalized.startsWith('ERROR')) status = 'error';
+          else if (normalized.startsWith('IDLE') || normalized.startsWith('SLEEPING')) status = 'idle';
+          else if (a.isActive) status = 'working';
+
           nextStates[a.id] = {
             id: a.id,
-            status: mapped,
-            model: undefined,
+            status,
             currentTask: a.currentTask,
+            model: undefined,
+            tokensPerHour: undefined,
+            tasksInQueue: undefined,
+            uptime: undefined,
           };
         }
 
-        if (cancelled) return;
-        setAgents(nextAgents);
-        setAgentStates(nextStates);
-      } catch (err) {
-        if (cancelled) return;
-        setLoadError(err instanceof Error ? err.message : 'agents_load_failed');
+        if (!cancelled) {
+          setAgents(nextAgents);
+          setAgentStates(nextStates);
+        }
+      } catch {
+        // ignore and keep fallback
       }
-    }
+    };
 
-    void load();
+    load();
+    const i = setInterval(load, 2500);
     return () => {
       cancelled = true;
+      clearInterval(i);
     };
-  }, []);
+  }, [OFFICE_POSITIONS]);
 
   const handleDeskClick = (agentId: string) => {
     setSelectedAgent(agentId);
@@ -110,18 +160,16 @@ export default function Office3D() {
     setInteractionModal(null);
   };
 
-  const handleAvatarPositionUpdate = (id: string, position: any) => {
+  const handleAvatarPositionUpdate = (id: string, position: Vector3) => {
     setAvatarPositions(prev => new Map(prev).set(id, position));
   };
 
-  const agentsWithPositions = useMemo(() => agents, [agents]);
-
   // Definir obstáculos (muebles)
   const obstacles = [
-    // Escritorios
-    ...agentsWithPositions.map(agent => ({
+    // Escritorios (6)
+    ...agents.map(agent => ({
       position: new Vector3(agent.position[0], 0, agent.position[2]),
-      radius: 1.5
+      radius: 2.15
     })),
     // Archivador
     { position: new Vector3(-8, 0, -5), radius: 0.8 },
@@ -136,40 +184,8 @@ export default function Office3D() {
     { position: new Vector3(9, 0, 0), radius: 0.4 },
   ];
 
-  const [webglOk, setWebglOk] = useState(true);
-
-  useEffect(() => {
-    // Basic WebGL availability test (avoids hard crash on sandboxed/disabled GPUs)
-    try {
-      const canvas = document.createElement("canvas");
-      const gl = (canvas.getContext("webgl") || canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
-      setWebglOk(!!gl);
-    } catch {
-      setWebglOk(false);
-    }
-  }, []);
-
-  if (!webglOk) {
-    return (
-      <div className="fixed inset-0 bg-gray-900 text-white flex items-center justify-center p-6">
-        <div className="max-w-lg w-full rounded-2xl border border-white/10 bg-white/5 p-6">
-          <h1 className="text-xl font-semibold mb-2">The Office 3D</h1>
-          <p className="text-sm text-white/70">
-            Your browser can’t create a WebGL context (WebGL disabled / sandboxed / hardware acceleration off).
-          </p>
-          <ul className="mt-4 text-sm text-white/70 list-disc pl-5 space-y-1">
-            <li>Try Chrome/Firefox (not an in-app browser)</li>
-            <li>Enable hardware acceleration</li>
-            <li>Disable “Use hardware acceleration when available” blocks / privacy extensions</li>
-            <li>Check <code className="text-white/80">chrome://gpu</code></li>
-          </ul>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="fixed inset-0 bg-gray-900 relative" style={{ height: '100vh', width: '100vw' }}>
+    <div className="fixed inset-0 bg-gray-900" style={{ height: '100vh', width: '100vw' }}>
       <Canvas
         camera={{ position: [0, 8, 12], fov: 60 }}
         shadows
@@ -196,22 +212,22 @@ export default function Office3D() {
           <Walls />
 
           {/* Escritorios de agentes (sin avatares) */}
-          {agentsWithPositions.map((agent) => (
+          {agents.map((agent) => (
             <AgentDesk
               key={agent.id}
               agent={agent}
-              state={agentStates[agent.id]}
+              state={agentStates[agent.id] ?? ({ id: agent.id, status: 'idle' } as AgentState)}
               onClick={() => handleDeskClick(agent.id)}
               isSelected={selectedAgent === agent.id}
             />
           ))}
 
           {/* Avatares móviles */}
-          {agentsWithPositions.map((agent) => (
+          {agents.map((agent) => (
             <MovingAvatar
               key={`avatar-${agent.id}`}
               agent={agent}
-              state={agentStates[agent.id]}
+              state={agentStates[agent.id] ?? ({ id: agent.id, status: 'idle' } as AgentState)}
               officeBounds={{ minX: -8, maxX: 8, minZ: -7, maxZ: 7 }}
               obstacles={obstacles}
               otherAvatarPositions={avatarPositions}
@@ -254,7 +270,10 @@ export default function Office3D() {
               maxPolarAngle={Math.PI / 2.2}
             />
           ) : (
-            <FirstPersonControls moveSpeed={5} />
+            <FirstPersonControls
+              moveSpeed={5}
+              obstacles={obstacles.map((o) => ({ x: o.position.x, z: o.position.z, radius: o.radius + 0.25 }))}
+            />
           )}
         </Suspense>
       </Canvas>
@@ -262,8 +281,8 @@ export default function Office3D() {
       {/* Panel lateral cuando se selecciona un agente */}
       {selectedAgent && (
         <AgentPanel
-          agent={agentsWithPositions.find(a => a.id === selectedAgent)!}
-          state={agentStates[selectedAgent]}
+          agent={agents.find(a => a.id === selectedAgent)!}
+          state={agentStates[selectedAgent] ?? ({ id: selectedAgent, status: 'idle' } as AgentState)}
           onClose={handleClosePanel}
         />
       )}
@@ -365,11 +384,6 @@ export default function Office3D() {
 
       {/* Controles UI overlay */}
       <div className="absolute top-4 left-4 bg-black/70 text-white p-4 rounded-lg backdrop-blur-sm">
-        {loadError ? (
-          <div className="mb-3 text-xs text-red-300">
-            Office data failed to load ({loadError}). Rendering placeholders.
-          </div>
-        ) : null}
         <h2 className="text-lg font-bold mb-2">🏢 The Office</h2>
         <div className="text-sm space-y-1 mb-3">
           <p><strong>Mode: {controlMode === 'orbit' ? '🖱️ Orbit' : '🎮 FPS'}</strong></p>

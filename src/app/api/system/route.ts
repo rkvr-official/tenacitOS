@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
+
+export const revalidate = 60;
 import path from 'path';
 import os from 'os';
 import { execSync } from 'child_process';

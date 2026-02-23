@@ -2,6 +2,21 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
+interface OpenClawConfigAgent {
+  id: string;
+  name?: string;
+  identity?: {
+    name?: string;
+    emoji?: string;
+  };
+}
+
+interface OpenClawConfig {
+  agents?: {
+    list?: OpenClawConfigAgent[];
+  };
+}
+
 const OPENCLAW_DIR = process.env.OPENCLAW_DIR || '/root/.openclaw';
 
 interface Workspace {
@@ -10,33 +25,6 @@ interface Workspace {
   emoji: string;
   path: string;
   agentName?: string;
-}
-
-type Identity = { name: string; emoji: string };
-
-function getConfigIdentityMap(): Map<string, Identity> {
-  const out = new Map<string, Identity>();
-  try {
-    const configPath = path.join(OPENCLAW_DIR, 'openclaw.json');
-    if (!fs.existsSync(configPath)) return out;
-
-    const raw = fs.readFileSync(configPath, 'utf-8');
-    const config = JSON.parse(raw);
-    const list = config?.agents?.list;
-    if (!Array.isArray(list)) return out;
-
-    for (const a of list) {
-      const id = a?.id;
-      const name = a?.identity?.name || a?.name;
-      const emoji = a?.identity?.emoji || a?.ui?.emoji;
-      if (typeof id === 'string' && typeof name === 'string' && typeof emoji === 'string') {
-        out.set(id, { name, emoji });
-      }
-    }
-  } catch {
-    // ignore config parse/read errors
-  }
-  return out;
 }
 
 function extractEmoji(raw: string): string | null {
@@ -52,7 +40,27 @@ function extractEmoji(raw: string): string | null {
   return match?.[0] ?? null;
 }
 
-function getAgentInfo(workspacePath: string): { name: string; emoji: string } | null {
+function readOpenClawConfig(): OpenClawConfig {
+  const configPath = path.join(OPENCLAW_DIR, 'openclaw.json');
+  try {
+    if (!fs.existsSync(configPath)) return {};
+    return JSON.parse(fs.readFileSync(configPath, 'utf-8')) as OpenClawConfig;
+  } catch {
+    return {};
+  }
+}
+
+function getConfigAgentInfo(config: OpenClawConfig, workspaceId: string): { name: string; emoji: string } | null {
+  const agentId = workspaceId === 'workspace' ? 'jarvis' : workspaceId.replace(/^workspace-/, '');
+  const entry = config.agents?.list?.find((agent) => agent.id === agentId);
+  if (!entry) return null;
+
+  const name = entry.identity?.name?.trim() || entry.name?.trim() || '';
+  const emoji = extractEmoji(entry.identity?.emoji ?? '') ?? '🤖';
+  return { name, emoji };
+}
+
+function getIdentityMdInfo(workspacePath: string): { name: string; emoji: string } | null {
   const identityPath = path.join(workspacePath, 'IDENTITY.md');
 
   if (!fs.existsSync(identityPath)) {
@@ -79,19 +87,21 @@ function getAgentInfo(workspacePath: string): { name: string; emoji: string } | 
 export async function GET() {
   try {
     const workspaces: Workspace[] = [];
-    const configIdentity = getConfigIdentityMap();
+    const config = readOpenClawConfig();
 
     // Main workspace
     const mainWorkspace = path.join(OPENCLAW_DIR, 'workspace');
     if (fs.existsSync(mainWorkspace)) {
-      const mainInfo = getAgentInfo(mainWorkspace);
-      const mainFromConfig = configIdentity.get('jarvis');
+      const configInfo = getConfigAgentInfo(config, 'workspace');
+      const fallbackInfo = getIdentityMdInfo(mainWorkspace);
+      const mainInfo = configInfo ?? fallbackInfo;
+
       workspaces.push({
         id: 'workspace',
         name: 'Workspace Principal',
-        emoji: mainFromConfig?.emoji || mainInfo?.emoji || '🦞',
+        emoji: mainInfo?.emoji || '🦞',
         path: mainWorkspace,
-        agentName: mainFromConfig?.name || mainInfo?.name || 'Tenacitas',
+        agentName: mainInfo?.name || 'Tenacitas',
       });
     }
 
@@ -101,19 +111,20 @@ export async function GET() {
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name.startsWith('workspace-')) {
         const workspacePath = path.join(OPENCLAW_DIR, entry.name);
-        const agentInfo = getAgentInfo(workspacePath);
+        const configInfo = getConfigAgentInfo(config, entry.name);
+        const fallbackInfo = getIdentityMdInfo(workspacePath);
+        const agentInfo = configInfo ?? fallbackInfo;
 
         const agentId = entry.name.replace('workspace-', '');
-        const configInfo = configIdentity.get(agentId);
         // Friendly workspace name: capitalize the directory id (e.g. "academic" → "Academic")
         const workspaceLabel = agentId.charAt(0).toUpperCase() + agentId.slice(1);
 
         workspaces.push({
           id: entry.name,
           name: workspaceLabel,
-          emoji: configInfo?.emoji || agentInfo?.emoji || '🤖',
+          emoji: agentInfo?.emoji || '🤖',
           path: workspacePath,
-          agentName: configInfo?.name || agentInfo?.name || undefined,
+          agentName: agentInfo?.name || undefined,
         });
       }
     }

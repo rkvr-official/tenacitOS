@@ -3,14 +3,12 @@
 import { useEffect, useState } from "react";
 import {
   Search,
-  RefreshCw,
   Puzzle,
   Package,
   FolderOpen,
   ExternalLink,
   FileText,
   X,
-  Download,
 } from "lucide-react";
 import { SectionHeader, MetricCard } from "@/components/TenacitOS";
 
@@ -32,20 +30,11 @@ interface SkillsData {
   skills: Skill[];
 }
 
-interface HubSkill {
-  slug: string;
-  name: string;
-  description?: string;
-}
-
 export default function SkillsPage() {
-  const [data, setData] = useState<SkillsData | null>(null);
+  const [data, setData] = useState<SkillsData>({ skills: [] });
   const [searchQuery, setSearchQuery] = useState("");
   const [filterSource, setFilterSource] = useState<"all" | "workspace" | "system">("all");
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
-  const [hubQuery, setHubQuery] = useState("");
-  const [hubResults, setHubResults] = useState<HubSkill[]>([]);
-  const [hubLoading, setHubLoading] = useState(false);
   const [hubCatalog, setHubCatalog] = useState<any[]>([]);
   const [hubPage, setHubPage] = useState(1);
   const [hubTotalPages, setHubTotalPages] = useState(1);
@@ -77,16 +66,6 @@ export default function SkillsPage() {
       });
   }, [hubPage]);
 
-  if (!data) {
-    return (
-      <div className="p-6">
-        <div className="flex items-center justify-center py-24">
-          <RefreshCw className="w-8 h-8 animate-spin" style={{ color: "var(--accent)" }} />
-        </div>
-      </div>
-    );
-  }
-
   const { skills } = data;
 
   // Filter skills
@@ -113,18 +92,7 @@ export default function SkillsPage() {
   const workspaceCount = skills.filter((s) => s.source === "workspace").length;
   const systemCount = skills.filter((s) => s.source === "system").length;
 
-  const searchHub = async () => {
-    const q = hubQuery.trim();
-    if (!q) return;
-    setHubLoading(true);
-    try {
-      const res = await fetch(`/api/skills/hub/search?q=${encodeURIComponent(q)}&limit=30`);
-      const data = await res.json();
-      setHubResults(data.skills || []);
-    } finally {
-      setHubLoading(false);
-    }
-  };
+  // marketplace search removed by design; catalog browse only.
 
   const installFromHub = async (slug: string) => {
     await fetch('/api/skills/install', {
@@ -310,35 +278,35 @@ export default function SkillsPage() {
         </div>
       </div>
 
-      {/* ClawHub Catalog (below system skills request) */}
-      <div style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 24 }}>
-        <div style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 10 }}>ClawHub Catalog</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+      {/* ClawHub Catalog */}
+      <div style={{ marginBottom: 24 }}>
+        <SectionHeader label="CLAWHUB CATALOG" />
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10, marginBottom: 12 }}>
           {(["all","dev","productivity","media","communication","security","home","other"] as const).map((c) => (
             <button key={c} onClick={() => setHubCategory(c)} style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid var(--border)", backgroundColor: hubCategory === c ? "var(--accent-soft)" : "var(--surface-elevated)", color: hubCategory === c ? "var(--accent)" : "var(--text-secondary)", fontSize: 11 }}>
               {c}
             </button>
           ))}
         </div>
-        <div style={{ display: "grid", gap: 8 }}>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+            gap: "12px",
+          }}
+        >
           {filteredHubCatalog.map((h: any) => (
-            <div key={h.slug} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ color: "var(--text-primary)", fontWeight: 600, fontSize: 13 }}>{h.displayName || h.name || h.slug}</div>
-                <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{h.slug} {h.tags?.latest ? `· v${h.tags.latest}` : ''}</div>
-                {h.summary && <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 2 }}>{h.summary}</div>}
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => previewSkillMd(h.slug)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", cursor: "pointer" }}>
-                  {hubPreviewLoading ? 'Loading...' : 'Preview SKILL.md'}
-                </button>
-                <button onClick={() => installFromHub(h.slug)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", cursor: "pointer" }}>
-                  Install
-                </button>
-              </div>
-            </div>
+            <ClawHubSkillCard
+              key={h.slug}
+              skill={h}
+              loadingPreview={hubPreviewLoading}
+              onPreview={() => previewSkillMd(h.slug)}
+              onInstall={() => installFromHub(h.slug)}
+            />
           ))}
         </div>
+
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10 }}>
           <button onClick={() => setHubPage((p) => Math.max(1, p - 1))} disabled={hubPage === 1} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>Prev</button>
           <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Page {hubPage} / {hubTotalPages}</div>
@@ -406,42 +374,6 @@ export default function SkillsPage() {
             </div>
           )}
 
-
-      {/* ClawHub Marketplace (search/filter) */}
-      <div style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 24 }}>
-        <div style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>ClawHub Marketplace Search</div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          <input
-            value={hubQuery}
-            onChange={(e) => setHubQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && searchHub()}
-            placeholder="Search marketplace skills (e.g. notion, weather, slack)"
-            style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", fontSize: 12 }}
-          />
-          <button onClick={searchHub} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--accent-soft)", color: "var(--accent)", cursor: "pointer" }}>
-            {hubLoading ? "Searching..." : "Search"}
-          </button>
-        </div>
-        {hubResults.length > 0 && (
-          <div style={{ display: "grid", gap: 8 }}>
-            {hubResults.map((h) => (
-              <div key={h.slug} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ color: "var(--text-primary)", fontWeight: 600, fontSize: 13 }}>{h.name || h.slug}</div>
-                  <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{h.slug}</div>
-                  {h.description && <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 2 }}>{h.description}</div>}
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => previewSkillMd(h.slug)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", cursor: "pointer" }}>Preview SKILL.md</button>
-                  <button onClick={() => installFromHub(h.slug)} style={{ display: "inline-flex", gap: 6, alignItems: "center", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", cursor: "pointer" }}>
-                    <Download style={{ width: 14, height: 14 }} /> Install
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
         </div>
       )}
       {/* Detail Modal */}
@@ -582,6 +514,74 @@ function SkillCard({ skill, onClick }: { skill: Skill; onClick: () => void }) {
         {skill.homepage && (
           <ExternalLink style={{ width: "14px", height: "14px", color: "var(--text-muted)" }} />
         )}
+      </div>
+    </div>
+  );
+}
+
+function ClawHubSkillCard({
+  skill,
+  onPreview,
+  onInstall,
+  loadingPreview,
+}: {
+  skill: any;
+  onPreview: () => void;
+  onInstall: () => void;
+  loadingPreview: boolean;
+}) {
+  return (
+    <div
+      style={{
+        backgroundColor: "var(--surface)",
+        borderRadius: "8px",
+        padding: "16px",
+        border: "1px solid var(--border)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
+        <span style={{ fontSize: 22, lineHeight: 1 }}>🧩</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h3 style={{ fontFamily: "var(--font-heading)", fontSize: 14, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
+            {skill.displayName || skill.name || skill.slug}
+          </h3>
+          <p
+            style={{
+              fontFamily: "var(--font-body)",
+              fontSize: 12,
+              color: "var(--text-secondary)",
+              lineHeight: "1.5",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
+            {skill.summary || "ClawHub skill"}
+          </p>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <div style={{ backgroundColor: "var(--surface-elevated)", color: "var(--text-muted)", padding: "3px 8px", borderRadius: 4, fontFamily: "var(--font-body)", fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>
+            clawhub
+          </div>
+          <div style={{ backgroundColor: "var(--surface-elevated)", color: "var(--text-secondary)", padding: "3px 7px", borderRadius: 4, fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 600, border: "1px solid var(--border)" }}>
+            {skill.slug}
+          </div>
+          {skill.tags?.latest && (
+            <span style={{ fontFamily: "var(--font-body)", fontSize: 10, color: "var(--text-muted)" }}>v{skill.tags.latest}</span>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={onPreview} style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", cursor: "pointer", fontSize: 11 }}>
+            {loadingPreview ? "Loading…" : "Preview"}
+          </button>
+          <button onClick={onInstall} style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", backgroundColor: "var(--accent-soft)", color: "var(--accent)", cursor: "pointer", fontSize: 11 }}>
+            Install
+          </button>
+        </div>
       </div>
     </div>
   );

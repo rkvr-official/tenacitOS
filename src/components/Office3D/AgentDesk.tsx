@@ -5,35 +5,31 @@ import { useFrame } from '@react-three/fiber';
 import { Text, Box } from '@react-three/drei';
 import type { Mesh } from 'three';
 import type { AgentConfig, AgentState } from './agentsConfig';
-import VoxelAvatar from './VoxelAvatar';
 import VoxelChair from './VoxelChair';
 import VoxelKeyboard from './VoxelKeyboard';
 import VoxelMacMini from './VoxelMacMini';
 
 interface AgentDeskProps {
   agent: AgentConfig;
-  state?: AgentState;
+  state: AgentState;
   onClick: () => void;
   isSelected: boolean;
 }
 
-const FALLBACK_STATE: AgentState = { id: "unknown", status: "idle" };
-
 export default function AgentDesk({ agent, state, onClick, isSelected }: AgentDeskProps) {
-  const safeState = state ?? { ...FALLBACK_STATE, id: agent.id };
   const deskRef = useRef<Mesh>(null);
   const monitorRef = useRef<Mesh>(null);
   const [hovered, setHovered] = useState(false);
 
   // Animación de pulsación para estado "thinking"
   useFrame((frameState) => {
-    if (monitorRef.current && safeState.status === 'thinking') {
+    if (monitorRef.current && state.status === 'thinking') {
       monitorRef.current.scale.setScalar(1 + Math.sin(frameState.clock.elapsedTime * 2) * 0.05);
     }
   });
 
   const getStatusColor = () => {
-    switch (safeState.status) {
+    switch (state.status) {
       case 'working':
         return '#22c55e'; // green-500
       case 'thinking':
@@ -47,7 +43,7 @@ export default function AgentDesk({ agent, state, onClick, isSelected }: AgentDe
   };
 
   const getMonitorEmissive = () => {
-    switch (safeState.status) {
+    switch (state.status) {
       case 'working':
         return '#15803d'; // darker green
       case 'thinking':
@@ -61,14 +57,7 @@ export default function AgentDesk({ agent, state, onClick, isSelected }: AgentDe
   };
 
   return (
-    <group
-      position={agent.position}
-      // Make the whole desk cluster clickable (not just the top mesh).
-      onPointerDown={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-    >
+    <group position={agent.position}>
       {/* Desk surface */}
       <Box
         ref={deskRef}
@@ -76,10 +65,7 @@ export default function AgentDesk({ agent, state, onClick, isSelected }: AgentDe
         position={[0, 0.75, 0]}
         castShadow
         receiveShadow
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          onClick();
-        }}
+        onClick={onClick}
         onPointerOver={() => setHovered(true)}
         onPointerOut={() => setHovered(false)}
       >
@@ -96,15 +82,12 @@ export default function AgentDesk({ agent, state, onClick, isSelected }: AgentDe
         args={[1.2, 0.8, 0.05]}
         position={[0, 1.5, -0.5]}
         castShadow
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          onClick();
-        }}
+        onClick={onClick}
       >
         <meshStandardMaterial
           color={getStatusColor()}
           emissive={getMonitorEmissive()}
-          emissiveIntensity={safeState.status === 'idle' ? 0.1 : 0.5}
+          emissiveIntensity={state.status === 'idle' ? 0.1 : 0.5}
         />
       </Box>
 
@@ -130,11 +113,11 @@ export default function AgentDesk({ agent, state, onClick, isSelected }: AgentDe
 
       {/* Avatar now rendered separately as MovingAvatar */}
 
-      {/* Office Chair - 2x size, rotated 180°, moved back and right */}
+      {/* Office Chair - oriented toward monitor */}
       <group scale={2}>
         <VoxelChair
           position={[0, 0, 0.9]}
-          rotation={[0, Math.PI, 0]}
+          rotation={[0, 0, 0]}
           color="#1f2937"
         />
       </group>
@@ -160,8 +143,8 @@ export default function AgentDesk({ agent, state, onClick, isSelected }: AgentDe
         anchorX="center"
         anchorY="middle"
       >
-        {safeState.status.toUpperCase()}
-        {safeState.model && ` • ${safeState.model}`}
+        {state.status.toUpperCase()}
+        {state.model && ` • ${state.model}`}
       </Text>
 
       {/* Desk legs */}

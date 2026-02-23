@@ -1,5 +1,7 @@
 import { NextResponse, NextRequest } from "next/server";
 import { getDatabase, getCostSummary } from "@/lib/usage-queries";
+
+export const revalidate = 120;
 import { getModelPricing, normalizeModelId } from "@/lib/pricing";
 import { collectUsage } from "@/lib/usage-collector";
 import path from "path";

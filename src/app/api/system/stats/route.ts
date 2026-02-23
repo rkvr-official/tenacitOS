@@ -5,7 +5,7 @@ import os from "os";
 
 const execAsync = promisify(exec);
 
-const SYSTEMD_SERVICES = ["mission-control", "content-vault", "classvault", "creatoros"];
+const SYSTEMD_SERVICES = ["openclaw-gateway", "tenacitos", "sshd", "tailscaled"];
 
 export async function GET() {
   try {

@@ -12,6 +12,7 @@ interface VoxelAvatarProps {
   isWorking?: boolean;
   isThinking?: boolean;
   isError?: boolean;
+  seated?: boolean;
 }
 
 export default function VoxelAvatar({
@@ -20,6 +21,7 @@ export default function VoxelAvatar({
   isWorking = false,
   isThinking = false,
   isError = false,
+  seated = false,
 }: VoxelAvatarProps) {
   const groupRef = useRef<Group>(null);
   const leftArmRef = useRef<Group>(null);
@@ -145,21 +147,24 @@ export default function VoxelAvatar({
         </Box>
       </group>
 
-      {/* LEGS */}
-      <Box args={[0.09, 0.18, 0.09]} position={[-0.05, -0.09, 0]} castShadow>
-        <meshStandardMaterial color={pantsColor} />
-      </Box>
-      <Box args={[0.09, 0.18, 0.09]} position={[0.05, -0.09, 0]} castShadow>
-        <meshStandardMaterial color={pantsColor} />
-      </Box>
+      {/* LEGS + SHOES (hidden while seated behind desk/chair) */}
+      {!seated && (
+        <>
+          <Box args={[0.09, 0.18, 0.09]} position={[-0.05, -0.09, 0]} castShadow>
+            <meshStandardMaterial color={pantsColor} />
+          </Box>
+          <Box args={[0.09, 0.18, 0.09]} position={[0.05, -0.09, 0]} castShadow>
+            <meshStandardMaterial color={pantsColor} />
+          </Box>
 
-      {/* SHOES */}
-      <Box args={[0.09, 0.04, 0.12]} position={[-0.05, -0.2, 0.015]} castShadow>
-        <meshStandardMaterial color="#1f2937" />
-      </Box>
-      <Box args={[0.09, 0.04, 0.12]} position={[0.05, -0.2, 0.015]} castShadow>
-        <meshStandardMaterial color="#1f2937" />
-      </Box>
+          <Box args={[0.09, 0.04, 0.12]} position={[-0.05, -0.2, 0.015]} castShadow>
+            <meshStandardMaterial color="#1f2937" />
+          </Box>
+          <Box args={[0.09, 0.04, 0.12]} position={[0.05, -0.2, 0.015]} castShadow>
+            <meshStandardMaterial color="#1f2937" />
+          </Box>
+        </>
+      )}
 
       {/* Error particles (sparks) */}
       {isError && (

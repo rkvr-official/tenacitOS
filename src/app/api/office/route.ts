@@ -1,210 +1,133 @@
 import { NextResponse } from "next/server";
-import { execSync } from "child_process";
-import { readFileSync, statSync } from "fs";
-import { join } from "path";
+import os from "os";
+import path from "path";
+import { existsSync, statSync } from "fs";
+import { getAgents, getSessions } from "@/lib/openclaw";
 
 export const dynamic = "force-dynamic";
 
-function getAgentDisplayInfo(agentId: string, agentConfig: any) {
-  const configEmoji = agentConfig?.ui?.emoji;
-  const configColor = agentConfig?.ui?.color;
-  const configName = agentConfig?.name;
+type OfficeStatus = "working" | "thinking" | "idle" | "error" | "sleeping";
 
-  return {
-    emoji: configEmoji || "🤖",
-    color: configColor || "#666666",
-    name: configName || agentId,
-    role: "Agent",
-  };
+function statusFromSession(s: any): OfficeStatus {
+  const ageMs = typeof s?.ageMs === "number" ? s.ageMs : Number.MAX_SAFE_INTEGER;
+  if (s?.abortedLastRun || s?.aborted) return "error";
+  if (ageMs < 2 * 60 * 1000 && (s?.outputTokens || 0) < 200) return "thinking";
+  if (ageMs < 10 * 60 * 1000) return "working";
+  if (ageMs < 60 * 60 * 1000) return "idle";
+  return "sleeping";
 }
 
-type AgentOfficeStatus = {
-  status: "working" | "thinking" | "idle" | "error" | "sleeping";
-  currentTask: string;
-  lastSeen: number;
-};
-
-function computeStatusFromSessions(sessions: Array<any>): Record<string, AgentOfficeStatus> {
-  const byAgent: Record<string, any> = {};
-
-  for (const s of sessions) {
-    const agentId = s.agentId;
-    if (!agentId) continue;
-
-    // Keep most recently updated session per agent
-    if (!byAgent[agentId] || (s.updatedAt ?? 0) > (byAgent[agentId].updatedAt ?? 0)) {
-      byAgent[agentId] = s;
-    }
+function taskFromSession(s: any): string {
+  const key = String(s?.key || "");
+  if (key.includes(":cron:")) {
+    const parts = key.split(":");
+    const idx = parts.indexOf("cron");
+    const jobId = idx >= 0 ? parts[idx + 1] : "cron";
+    return `Cron: ${jobId}`;
   }
-
-  const now = Date.now();
-  const out: Record<string, AgentOfficeStatus> = {};
-
-  for (const [agentId, s] of Object.entries(byAgent)) {
-    const updatedAt = typeof s.updatedAt === "number" ? s.updatedAt : 0;
-    const ageMs = now - updatedAt;
-
-    // ERROR: last run aborted
-    if (s.abortedLastRun) {
-      out[agentId] = {
-        status: "error",
-        currentTask: "ERROR: last run aborted",
-        lastSeen: updatedAt,
-      };
-      continue;
-    }
-
-    // THINKING: task just arrived / planning phase
-    // Heuristic: very recent update + very low output tokens.
-    const outputTokens = typeof s.outputTokens === "number" ? s.outputTokens : 0;
-    if (ageMs < 2 * 60 * 1000 && outputTokens < 200) {
-      out[agentId] = {
-        status: "thinking",
-        currentTask: "THINKING: planning",
-        lastSeen: updatedAt,
-      };
-      continue;
-    }
-
-    // WORKING: recently active
-    if (ageMs < 10 * 60 * 1000) {
-      out[agentId] = {
-        status: "working",
-        currentTask: "WORKING",
-        lastSeen: updatedAt,
-      };
-      continue;
-    }
-
-    // IDLE: somewhat recent
-    if (ageMs < 60 * 60 * 1000) {
-      out[agentId] = {
-        status: "idle",
-        currentTask: "IDLE",
-        lastSeen: updatedAt,
-      };
-      continue;
-    }
-
-    out[agentId] = {
-      status: "sleeping",
-      currentTask: "SLEEPING: zzZ...",
-      lastSeen: updatedAt,
-    };
-  }
-
-  return out;
+  if (key.includes(":slack:")) return "Handling Slack conversation";
+  if (key.includes(":telegram:")) return "Handling Telegram conversation";
+  if (key.includes(":discord:")) return "Handling Discord conversation";
+  if (key.includes(":subagent:")) return "Delegating subagent workflow";
+  return "Working on session";
 }
 
-function resolveWorkspace(config: any, agentId: string, agentConfig: any): string {
-  if (typeof agentConfig?.workspace === "string" && agentConfig.workspace.length) return agentConfig.workspace;
+function activityTextFromSession(s: any): string {
+  const key = String(s?.key || "");
+  if (key.includes(":cron:")) {
+    const parts = key.split(":");
+    const idx = parts.indexOf("cron");
+    const jobId = idx >= 0 ? parts[idx + 1] : "cron";
+    return `Executed cron ${jobId}`;
+  }
+  if (key.includes(":slack:")) return "Processed Slack message";
+  if (key.includes(":telegram:")) return "Processed Telegram message";
+  if (key.includes(":discord:")) return "Processed Discord message";
+  if (key.includes(":subagent:")) return "Delegated subagent task";
+  return "Session updated";
+}
+
+function fallbackLastSeenFromStore(agentId: string): number {
   const openclawDir = process.env.OPENCLAW_DIR || "/root/.openclaw";
-  const baseWorkspace = config?.agents?.defaults?.workspace || join(openclawDir, "workspace");
-  const defaultAgentId = config?.heartbeat?.defaultAgentId || config?.agents?.list?.[0]?.id;
-  if (agentId && agentId === defaultAgentId) return baseWorkspace;
-  return `${baseWorkspace}-${agentId}`;
-}
-
-function getAgentStatusFromFiles(
-  workspace: string
-): { isActive: boolean; currentTask: string; lastSeen: number } {
+  const store = path.join(openclawDir, "agents", agentId, "sessions", "sessions.json");
+  if (!existsSync(store)) return 0;
   try {
-    const today = new Date().toISOString().split("T")[0];
-    const memoryFile = join(workspace, "memory", `${today}.md`);
-
-    // Check if file exists
-    const stat = statSync(memoryFile);
-    const lastSeen = stat.mtime.getTime();
-    const minutesSinceUpdate = (Date.now() - lastSeen) / 1000 / 60;
-
-    const content = readFileSync(memoryFile, "utf-8");
-    const lines = content.trim().split("\n").filter((l) => l.trim());
-
-    let currentTask = "Idle...";
-    if (lines.length > 0) {
-      // Get last meaningful line (skip timestamps)
-      const lastLine = lines
-        .slice(-10)
-        .reverse()
-        .find((l) => l.length > 20 && !l.match(/^#+\s/));
-
-      if (lastLine) {
-        currentTask = lastLine.replace(/^[-*]\s*/, "").slice(0, 100);
-        if (lastLine.length > 100) currentTask += "...";
-      }
-    }
-
-    // Determine status based on file modification time
-    if (minutesSinceUpdate < 5) {
-      return { isActive: true, currentTask: `ACTIVE: ${currentTask}`, lastSeen };
-    } else if (minutesSinceUpdate < 30) {
-      return { isActive: false, currentTask: `IDLE: ${currentTask}`, lastSeen };
-    } else {
-      return { isActive: false, currentTask: "SLEEPING: zzZ...", lastSeen };
-    }
-  } catch (error) {
-    // No memory file or error reading
-    return { isActive: false, currentTask: "SLEEPING: zzZ...", lastSeen: 0 };
+    return statSync(store).mtimeMs;
+  } catch {
+    return 0;
   }
 }
 
 export async function GET() {
   try {
-    const configPath = (process.env.OPENCLAW_DIR || "/root/.openclaw") + "/openclaw.json";
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
+    const agents = getAgents();
 
-    // Sessions signal (best-effort): uses OpenClaw's session index.
-    // Falls back to memory file timestamps when session info is missing.
-    let sessionStatus: Record<string, AgentOfficeStatus> = {};
-    try {
-      const raw = execSync("openclaw sessions list --json", {
-        encoding: "utf8",
-        timeout: 4000,
-        env: process.env,
-      });
-      const parsed = JSON.parse(raw);
-      const recent = (parsed?.recent ?? parsed?.sessions?.recent ?? parsed) as Array<any>;
-      if (Array.isArray(recent)) sessionStatus = computeStatusFromSessions(recent);
-    } catch {
-      // ignore
-    }
+    const hostUptimeDays = Math.floor(os.uptime() / 86400);
+    const now = Date.now();
 
-    const agents = config.agents.list.map((agent: any) => {
-      const agentInfo = getAgentDisplayInfo(agent.id, agent);
+    const result = agents.map((a) => {
+      const agentSessions = getSessions(a.id) || [];
+      const latest = agentSessions[0];
 
-      // Get status from sessions, or fallback to files
-      let status = sessionStatus[agent.id];
-      if (!status) {
-        const workspace = resolveWorkspace(config, agent.id, agent);
-        const fileStatus = getAgentStatusFromFiles(workspace);
-        status = {
-          status: fileStatus.isActive ? "working" : "sleeping",
-          currentTask: fileStatus.currentTask,
-          lastSeen: fileStatus.lastSeen,
-        };
+      const status: OfficeStatus = latest
+        ? statusFromSession(latest)
+        : a.currentState === "SLEEPING"
+        ? "sleeping"
+        : a.currentState === "ACTIVE"
+        ? "working"
+        : "idle";
+
+      const currentTask = latest
+        ? taskFromSession(latest)
+        : a.currentState === "SLEEPING"
+        ? "SLEEPING: zzZ..."
+        : a.currentState === "ACTIVE"
+        ? "WORKING"
+        : "IDLE";
+
+      const lastSeen =
+        latest?.updatedAt ||
+        (a.lastActivity ? new Date(a.lastActivity).getTime() : 0) ||
+        fallbackLastSeenFromStore(a.id);
+
+      const oneHourAgo = now - 60 * 60 * 1000;
+      const recentHour = agentSessions.filter((s) => (s?.updatedAt || 0) >= oneHourAgo);
+      const tokensPerHour = recentHour.reduce((sum, s) => sum + (Number(s?.totalTokens || 0) || 0), 0);
+
+      const tasksInQueue = agentSessions.filter((s) => (s?.ageMs || Number.MAX_SAFE_INTEGER) < 2 * 60 * 1000).length;
+
+      const recentActivity = agentSessions.slice(0, 4).map((s) => ({
+        at: Number(s?.updatedAt || 0),
+        text: activityTextFromSession(s),
+      }));
+      if (recentActivity.length === 0 && lastSeen > 0) {
+        recentActivity.push({
+          at: lastSeen,
+          text: currentTask === "SLEEPING: zzZ..." ? "No recent execution" : `State: ${currentTask}`,
+        });
       }
 
-      // Map freelance -> devclaw for canvas compatibility
-      const canvasId = agent.id === "freelance" ? "devclaw" : agent.id;
-
       return {
-        id: canvasId,
-        name: agentInfo.name,
-        emoji: agentInfo.emoji,
-        color: agentInfo.color,
-        role: agentInfo.role,
-        currentTask: status.currentTask,
-        status: status.status,
-        lastSeen: status.lastSeen,
+        id: a.id,
+        name: a.name,
+        emoji: a.emoji,
+        color: a.color,
+        role: a.isOrchestrator ? "Orchestrator" : "Specialist",
+        currentTask,
+        status,
+        lastSeen,
+        model: a.model,
+        tokensPerHour,
+        tasksInQueue,
+        activeSessions: a.activeSessions,
+        uptime: hostUptimeDays,
+        recentActivity,
       };
     });
 
-    return NextResponse.json({ agents });
+    return NextResponse.json({ agents: result });
   } catch (error) {
     console.error("Error getting office data:", error);
-    return NextResponse.json(
-      { error: "Failed to load office data" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to load office data" }, { status: 500 });
   }
 }

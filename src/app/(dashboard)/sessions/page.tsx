@@ -207,26 +207,42 @@ function SessionDetail({
   onClose: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     if (!session.sessionId) {
-      setLoading(false);
-      setError("No session file available");
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
-    setLoading(true);
-    setError(null);
-    fetch(`/api/sessions?id=${session.sessionId}`)
+    const controller = new AbortController();
+
+    fetch(`/api/sessions?id=${session.sessionId}`, { signal: controller.signal })
       .then((r) => r.json())
       .then((data) => {
+        if (cancelled) return;
+        setError(null);
         setMessages(data.messages || []);
         if (data.error) setError(data.error);
       })
-      .catch(() => setError("Failed to load messages"))
-      .finally(() => setLoading(false));
+      .catch((err: Error) => {
+        if (cancelled) return;
+        if (err.name !== "AbortError") {
+          setError("Failed to load messages");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [session.sessionId]);
 
   const userCount = messages.filter((m) => m.type === "user").length;
@@ -393,20 +409,27 @@ function SessionDetail({
                 justifyContent: "center",
                 padding: "3rem",
                 color: "var(--text-muted)",
-                gap: "0.5rem",
               }}
             >
-              <div
-                style={{
-                  width: "16px",
-                  height: "16px",
-                  border: "2px solid var(--accent)",
-                  borderTopColor: "transparent",
-                  borderRadius: "50%",
-                  animation: "spin 0.8s linear infinite",
-                }}
-              />
-              Loading transcript...
+              Loading transcript…
+            </div>
+          )}
+
+          {!session.sessionId && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                padding: "1rem",
+                borderRadius: "0.75rem",
+                backgroundColor: "rgba(245,158,11,0.1)",
+                color: "var(--warning)",
+                fontSize: "0.875rem",
+              }}
+            >
+              <AlertTriangle style={{ width: "16px", height: "16px" }} />
+              No session file available yet. Refresh and try again.
             </div>
           )}
 
@@ -891,21 +914,10 @@ export default function SessionsPage() {
                 alignItems: "center",
                 justifyContent: "center",
                 padding: "3rem",
-                gap: "0.75rem",
                 color: "var(--text-muted)",
               }}
             >
-              <div
-                style={{
-                  width: "20px",
-                  height: "20px",
-                  border: "2px solid var(--accent)",
-                  borderTopColor: "transparent",
-                  borderRadius: "50%",
-                  animation: "spin 0.8s linear infinite",
-                }}
-              />
-              Loading sessions...
+              Loading sessions…
             </div>
           )}
 

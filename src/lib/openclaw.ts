@@ -1,5 +1,5 @@
 import { execFileSync } from "child_process";
-import { existsSync, readFileSync, statSync } from "fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import path from "path";
 
 const OPENCLAW_DIR = process.env.OPENCLAW_DIR || "/root/.openclaw";
@@ -148,6 +148,14 @@ export function getAgents(): OpenclawAgent[] {
 }
 
 function getAgentSessionsById(): Record<string, AgentSession[]> {
+  const grouped: Record<string, AgentSession[]> = {};
+
+  const push = (agentId: string, s: AgentSession) => {
+    if (!grouped[agentId]) grouped[agentId] = [];
+    grouped[agentId].push(s);
+  };
+
+  // Primary: CLI sessions list (live usage)
   let rawSessions: RawSession[] = [];
   try {
     let payload: any;
@@ -156,15 +164,13 @@ function getAgentSessionsById(): Record<string, AgentSession[]> {
     } catch {
       payload = runOpenclawJson(["sessions"]);
     }
-    rawSessions = payload.sessions || [];
+    rawSessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
   } catch {
-    return {};
+    rawSessions = [];
   }
 
-  const grouped: Record<string, AgentSession[]> = {};
-
   for (const s of rawSessions) {
-    const parts = s.key.split(":");
+    const parts = String(s.key || "").split(":");
     if (parts.length < 3 || parts[0] !== "agent") continue;
     if (parts.includes("run")) continue;
 
@@ -172,7 +178,7 @@ function getAgentSessionsById(): Record<string, AgentSession[]> {
     const totalTokens = s.totalTokens || 0;
     const contextTokens = s.contextTokens || 0;
 
-    const parsed: AgentSession = {
+    push(agentId, {
       id: s.key,
       key: s.key,
       sessionId: s.sessionId || null,
@@ -186,10 +192,52 @@ function getAgentSessionsById(): Record<string, AgentSession[]> {
       contextTokens,
       contextUsedPercent: contextTokens > 0 && s.totalTokensFresh ? Math.round((totalTokens / contextTokens) * 100) : null,
       aborted: s.abortedLastRun || false,
-    };
+    });
+  }
 
-    if (!grouped[agentId]) grouped[agentId] = [];
-    grouped[agentId].push(parsed);
+  // Fallback/enrichment: session stores on disk (works even when CLI list is empty)
+  try {
+    const agentsRoot = path.join(OPENCLAW_DIR, "agents");
+    const agentDirs = existsSync(agentsRoot) ? readdirSync(agentsRoot, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name) : [];
+
+    for (const agentId of agentDirs) {
+      const storePath = path.join(agentsRoot, agentId, "sessions", "sessions.json");
+      if (!existsSync(storePath)) continue;
+
+      try {
+        const store = JSON.parse(readFileSync(storePath, "utf-8"));
+        for (const [key, meta] of Object.entries(store as Record<string, any>)) {
+          if (!String(key).startsWith("agent:")) continue;
+          if (String(key).includes(":run:")) continue;
+
+          const updatedAt = Number(meta?.updatedAt || 0);
+          const totalTokens = Number(meta?.totalTokens || 0);
+          const contextTokens = Number(meta?.contextTokens || 0);
+          const entry: AgentSession = {
+            id: String(key),
+            key: String(key),
+            sessionId: typeof meta?.sessionId === "string" ? meta.sessionId : null,
+            updatedAt,
+            ageMs: updatedAt > 0 ? Date.now() - updatedAt : 0,
+            model: typeof meta?.model === "string" ? meta.model : "unknown",
+            modelProvider: typeof meta?.modelProvider === "string" ? meta.modelProvider : "unknown",
+            inputTokens: Number(meta?.inputTokens || 0),
+            outputTokens: Number(meta?.outputTokens || 0),
+            totalTokens,
+            contextTokens,
+            contextUsedPercent: contextTokens > 0 ? Math.round((totalTokens / contextTokens) * 100) : null,
+            aborted: !!meta?.abortedLastRun,
+          };
+
+          const existing = grouped[agentId]?.find((x) => x.key === entry.key);
+          if (!existing) push(agentId, entry);
+        }
+      } catch {
+        // ignore malformed store
+      }
+    }
+  } catch {
+    // ignore fallback errors
   }
 
   for (const agentId of Object.keys(grouped)) {
@@ -215,18 +263,66 @@ export function getSessionMessages(agentId: string, sessionId?: string): { sessi
     return { sessionId: null, messages: [] };
   }
 
-  if (!/^[a-f0-9-]{36}$/.test(resolvedSessionId)) {
+  if (!/^[a-z0-9-]{36}$/i.test(resolvedSessionId)) {
     throw new Error("Invalid session ID");
   }
 
-  const filePath = path.join(OPENCLAW_DIR, "agents", agentId, "sessions", `${resolvedSessionId}.jsonl`);
-  if (!existsSync(filePath)) {
+  const sessionsDir = path.join(OPENCLAW_DIR, "agents", agentId, "sessions");
+
+  // 1) resolve via sessions.json metadata (supports topic-suffixed files)
+  let filePath: string | null = null;
+  const storePath = path.join(sessionsDir, "sessions.json");
+  if (existsSync(storePath)) {
+    try {
+      const store = JSON.parse(readFileSync(storePath, "utf-8"));
+      for (const entry of Object.values(store as Record<string, any>)) {
+        if (entry?.sessionId === resolvedSessionId && typeof entry?.sessionFile === "string") {
+          filePath = entry.sessionFile;
+          break;
+        }
+      }
+    } catch {
+      // ignore malformed store
+    }
+  }
+
+  // 2) direct file fallback
+  if (!filePath) {
+    const direct = path.join(sessionsDir, `${resolvedSessionId}.jsonl`);
+    if (existsSync(direct)) filePath = direct;
+  }
+
+  // 3) topic file fallback
+  if (!filePath) {
+    try {
+      const files = readdirSync(sessionsDir);
+      const topic = files.find((f) => f.startsWith(`${resolvedSessionId}-topic-`) && f.endsWith(".jsonl"));
+      if (topic) filePath = path.join(sessionsDir, topic);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!filePath || !existsSync(filePath)) {
     return { sessionId: resolvedSessionId, messages: [] };
   }
 
   const lines = readFileSync(filePath, "utf-8").trim().split("\n").filter(Boolean);
   const messages: SessionMessage[] = [];
   let currentModel = "";
+
+  const asText = (v: unknown): string => {
+    if (typeof v === "string") return v;
+    if (Array.isArray(v)) return v.map(asText).filter(Boolean).join("\n");
+    if (v && typeof v === "object") {
+      const obj = v as Record<string, unknown>;
+      if (typeof obj.text === "string") return obj.text;
+      if (typeof obj.content === "string") return obj.content;
+      if (Array.isArray(obj.content)) return asText(obj.content);
+      return JSON.stringify(obj);
+    }
+    return "";
+  };
 
   for (const line of lines) {
     try {
@@ -251,29 +347,29 @@ export function getSessionMessages(agentId: string, sessionId?: string): { sessi
         for (const block of msg.content) {
           if (block.type === "text" && block.text) {
             messages.push({
-              id: `${obj.id || "msg"}-text`,
+              id: `${obj.id || "msg"}-text-${messages.length}`,
               type: role === "user" ? "user" : "assistant",
               role,
-              content: block.text,
+              content: String(block.text),
               timestamp,
               model: currentModel || undefined,
             });
           } else if (block.type === "tool_use" && block.name) {
             messages.push({
-              id: block.id || `${obj.id || "msg"}-tool`,
+              id: block.id || `${obj.id || "msg"}-tool-${messages.length}`,
               type: "tool_use",
               role,
-              content: `${block.name}(${block.input ? JSON.stringify(block.input).slice(0, 200) : ""})`,
+              content: `${block.name}(${block.input ? JSON.stringify(block.input).slice(0, 220) : ""})`,
               timestamp,
               toolName: block.name,
               model: currentModel || undefined,
             });
           } else if (block.type === "tool_result") {
             messages.push({
-              id: `${obj.id || "msg"}-result`,
+              id: `${obj.id || "msg"}-result-${messages.length}`,
               type: "tool_result",
               role,
-              content: typeof block.text === "string" ? block.text.slice(0, 500) : "",
+              content: asText(block.text ?? block.content ?? "").slice(0, 1200),
               timestamp,
               model: currentModel || undefined,
             });
