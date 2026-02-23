@@ -72,7 +72,7 @@ export default function Office3D() {
           color: string;
           role: string;
           currentTask?: string;
-          isActive?: boolean;
+          status?: 'working' | 'thinking' | 'idle' | 'error' | 'sleeping';
         }>;
 
         if (!Array.isArray(apiAgents) || apiAgents.length === 0) return;
@@ -99,14 +99,18 @@ export default function Office3D() {
 
         const nextStates: Record<string, AgentState> = {};
         for (const a of uniqueApiAgents) {
-          const task = a.currentTask ?? '';
-          let status: AgentState['status'] = 'idle';
-          const normalized = task.toUpperCase();
-          if (normalized.startsWith('ACTIVE')) status = 'working';
-          else if (normalized.startsWith('THINKING')) status = 'thinking';
-          else if (normalized.startsWith('ERROR')) status = 'error';
-          else if (normalized.startsWith('IDLE') || normalized.startsWith('SLEEPING')) status = 'idle';
-          else if (a.isActive) status = 'working';
+          // /api/office is authoritative for status.
+          // Map API -> Office3D internal state.
+          const status: AgentState['status'] =
+            a.status === 'working'
+              ? 'working'
+              : a.status === 'thinking'
+                ? 'thinking'
+                : a.status === 'error'
+                  ? 'error'
+                  : a.status === 'idle' || a.status === 'sleeping'
+                    ? 'idle'
+                    : 'idle';
 
           nextStates[a.id] = {
             id: a.id,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bot,
   Circle,
@@ -11,6 +11,8 @@ import {
   Activity,
   GitBranch,
   LayoutGrid,
+  Send,
+  X,
 } from "lucide-react";
 import { AgentOrganigrama } from "@/components/AgentOrganigrama";
 
@@ -24,6 +26,7 @@ interface Agent {
   dmPolicy?: string;
   currentTask?: string;
   isActive?: boolean;
+  officeStatus?: "working" | "thinking" | "idle" | "error" | "sleeping";
   role?: string;
   allowAgents: string[];
   allowAgentsDetails?: Array<{
@@ -44,6 +47,15 @@ export default function AgentsPage() {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [activeTab, setActiveTab] = useState<"cards" | "orgChart">("cards");
 
+  // --- Agent chat UI state ---
+  const [chatAgentId, setChatAgentId] = useState<string | null>(null);
+  const [chatSessionByAgent, setChatSessionByAgent] = useState<Record<string, string | undefined>>({});
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatDraft, setChatDraft] = useState("");
+  const [chatSending, setChatSending] = useState(false);
+
   useEffect(() => {
     fetchAgents();
     const interval = setInterval(fetchAgents, 10000);
@@ -62,18 +74,25 @@ export default function AgentsPage() {
         officeRes.json().catch(() => ({ agents: [] })),
       ]);
 
-      const officeById = new Map<string, { currentTask?: string; isActive?: boolean; role?: string }>(
-        (officeData?.agents || []).map((a: { id: string; currentTask?: string; isActive?: boolean; role?: string }) => [a.id, a])
+      const officeById = new Map<
+        string,
+        { currentTask?: string; role?: string; status?: Agent["officeStatus"] }
+      >(
+        (officeData?.agents || []).map(
+          (a: { id: string; currentTask?: string; role?: string; status?: Agent["officeStatus"] }) => [a.id, a]
+        )
       );
 
       const merged = (agentsData?.agents || []).map((agent: Agent) => {
         const office = officeById.get(agent.id);
+        const officeStatus = office?.status;
+        const onlineByOffice = officeStatus === "working" || officeStatus === "thinking";
         return {
           ...agent,
           currentTask: office?.currentTask ?? agent.currentTask,
-          isActive: office?.isActive ?? agent.isActive,
           role: office?.role ?? agent.role,
-          status: office?.isActive ? "online" : agent.status,
+          officeStatus,
+          status: onlineByOffice ? "online" : agent.status,
         } as Agent;
       });
 
@@ -98,6 +117,75 @@ export default function AgentsPage() {
     if (hours < 24) return `${hours}h ago`;
     const days = Math.floor(hours / 24);
     return `${days}d ago`;
+  };
+
+  const chatAgent = useMemo(
+    () => (chatAgentId ? agents.find((a) => a.id === chatAgentId) : null),
+    [chatAgentId, agents]
+  );
+
+  const loadChat = async (agentId: string) => {
+    setChatLoading(true);
+    setChatError(null);
+    try {
+      const sessionId = chatSessionByAgent[agentId];
+      const url = new URL("/api/openclaw/messages", window.location.origin);
+      url.searchParams.set("agentId", agentId);
+      if (sessionId) url.searchParams.set("sessionId", sessionId);
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setChatMessages(Array.isArray(data?.messages) ? data.messages : []);
+    } catch (e) {
+      setChatError(e instanceof Error ? e.message : "Failed to load messages");
+      setChatMessages([]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const openChat = async (agentId: string) => {
+    setChatAgentId(agentId);
+    setChatDraft("");
+    await loadChat(agentId);
+  };
+
+  const closeChat = () => {
+    setChatAgentId(null);
+    setChatMessages([]);
+    setChatError(null);
+    setChatDraft("");
+  };
+
+  const sendChat = async () => {
+    if (!chatAgentId) return;
+    const msg = chatDraft.trim();
+    if (!msg) return;
+
+    setChatSending(true);
+    setChatError(null);
+    try {
+      const sessionId = chatSessionByAgent[chatAgentId];
+      const res = await fetch("/api/openclaw/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: chatAgentId, message: msg, sessionId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
+      // If backend returns a sessionId, stick to it for subsequent fetches.
+      if (data?.sessionId) {
+        setChatSessionByAgent((prev) => ({ ...prev, [chatAgentId]: String(data.sessionId) }));
+      }
+
+      setChatDraft("");
+      await loadChat(chatAgentId);
+    } catch (e) {
+      setChatError(e instanceof Error ? e.message : "Failed to send");
+    } finally {
+      setChatSending(false);
+    }
   };
 
   // Render static shell immediately; avoid full-page loading spinners.
@@ -247,14 +335,28 @@ export default function AgentsPage() {
                 </div>
               </div>
 
-              {agent.botToken && (
-                <div title="Telegram Bot Connected">
-                  <MessageSquare
-                    className="w-5 h-5"
-                    style={{ color: "#0088cc" }}
-                  />
-                </div>
-              )}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => openChat(agent.id)}
+                  className="text-xs font-medium px-2.5 py-1.5 rounded-lg flex items-center gap-1.5"
+                  style={{
+                    backgroundColor: "var(--card-elevated)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text-secondary)",
+                    cursor: "pointer",
+                  }}
+                  title={`Chat with ${agent.name}`}
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  Chat
+                </button>
+
+                {agent.botToken && (
+                  <div title="Telegram Bot Connected">
+                    <MessageSquare className="w-5 h-5" style={{ color: "#0088cc" }} />
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Details */}
@@ -445,6 +547,131 @@ export default function AgentsPage() {
           </div>
         )}
       </div>
+      )}
+
+      {/* Chat drawer/modal */}
+      {chatAgentId && chatAgent && (
+        <div
+          className="fixed inset-0 z-50"
+          style={{ backgroundColor: "rgba(0,0,0,0.55)" }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeChat();
+          }}
+        >
+          <div
+            className="absolute right-0 top-0 h-full w-full max-w-xl"
+            style={{ backgroundColor: "var(--background)", borderLeft: "1px solid var(--border)" }}
+          >
+            <div className="p-4 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
+              <div className="flex items-center gap-3 min-w-0">
+                <div
+                  className="w-10 h-10 rounded-lg flex items-center justify-center text-xl"
+                  style={{ backgroundColor: `${chatAgent.color}20`, border: `1px solid ${chatAgent.color}55` }}
+                >
+                  {chatAgent.emoji}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-semibold truncate" style={{ color: "var(--text-primary)" }}>
+                    Chat — {chatAgent.name}
+                  </div>
+                  <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+                    agentId: {chatAgent.id}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={closeChat}
+                className="p-2 rounded-lg"
+                style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-auto" style={{ height: "calc(100vh - 56px - 72px)" }}>
+              {chatLoading && (
+                <div className="text-sm" style={{ color: "var(--text-muted)" }}>Loading messages…</div>
+              )}
+              {chatError && (
+                <div className="text-sm mb-3" style={{ color: "var(--error)" }}>{chatError}</div>
+              )}
+
+              {!chatLoading && chatMessages.length === 0 && (
+                <div className="text-sm" style={{ color: "var(--text-muted)" }}>
+                  No messages yet.
+                </div>
+              )}
+
+              <div className="space-y-3">
+                {chatMessages.map((m, idx) => {
+                  const role = String(m?.role || m?.author || "");
+                  const content = String(m?.content || m?.text || "");
+                  const isUser = role === "user" || role === "human";
+                  return (
+                    <div
+                      key={`${m?.id || idx}`}
+                      className="rounded-xl p-3"
+                      style={{
+                        backgroundColor: isUser ? "rgba(59,130,246,0.10)" : "var(--card)",
+                        border: `1px solid ${isUser ? "rgba(59,130,246,0.25)" : "var(--border)"}`,
+                      }}
+                    >
+                      <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+                        {isUser ? "You" : role || "agent"}
+                      </div>
+                      <div className="text-sm whitespace-pre-wrap" style={{ color: "var(--text-primary)", lineHeight: 1.45 }}>
+                        {content}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="p-4" style={{ borderTop: "1px solid var(--border)" }}>
+              <div className="flex items-end gap-2">
+                <textarea
+                  value={chatDraft}
+                  onChange={(e) => setChatDraft(e.target.value)}
+                  placeholder="Type a message…"
+                  className="w-full rounded-xl p-3"
+                  style={{
+                    backgroundColor: "var(--card)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text-primary)",
+                    resize: "none",
+                    minHeight: "44px",
+                    maxHeight: "120px",
+                  }}
+                  onKeyDown={(e) => {
+                    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      sendChat();
+                    }
+                  }}
+                />
+                <button
+                  onClick={sendChat}
+                  disabled={chatSending || chatDraft.trim().length === 0}
+                  className="px-3 py-3 rounded-xl flex items-center gap-2"
+                  style={{
+                    backgroundColor: "var(--accent)",
+                    color: "#000",
+                    opacity: chatSending || chatDraft.trim().length === 0 ? 0.55 : 1,
+                    cursor: chatSending || chatDraft.trim().length === 0 ? "not-allowed" : "pointer",
+                  }}
+                  title="Send (Ctrl+Enter)"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
+                Tip: Ctrl+Enter to send
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

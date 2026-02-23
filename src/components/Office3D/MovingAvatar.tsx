@@ -58,14 +58,22 @@ export default function MovingAvatar({
     const minDistanceToObstacle = 1.35; // stricter distance to furniture/desks
     const minDistanceToAvatar = 1.0; // distance between avatars
 
+    const distXZ = (a: Vector3, b: Vector3) => {
+      const dx = a.x - b.x;
+      const dz = a.z - b.z;
+      return Math.sqrt(dx * dx + dz * dz);
+    };
+
     for (const obstacle of obstacles) {
-      const distance = pos.distanceTo(obstacle.position);
+      // Obstacles are defined on y=0 while avatars float around y=0.6.
+      // Use XZ distance only to make collisions consistent.
+      const distance = distXZ(pos, obstacle.position);
       if (distance < obstacle.radius + minDistanceToObstacle) return false;
     }
 
     for (const [otherId, otherPos] of otherAvatarPositions.entries()) {
       if (otherId === agent.id) continue;
-      const distance = pos.distanceTo(otherPos);
+      const distance = distXZ(pos, otherPos);
       if (distance < minDistanceToAvatar) return false;
     }
 
@@ -125,7 +133,7 @@ export default function MovingAvatar({
       currentPos.current.copy(anchors.chair);
       if (groupRef.current) {
         groupRef.current.position.copy(anchors.chair);
-        groupRef.current.rotation.y = 0; // face the desk/monitor
+        groupRef.current.rotation.y = Math.PI; // face the desk/monitor
       }
       onPositionUpdate(agent.id, anchors.chair.clone());
     }
@@ -175,7 +183,7 @@ export default function MovingAvatar({
     // If seated, stay put
     if (state.status === 'working' || state.status === 'thinking') {
       groupRef.current.position.copy(anchors.chair);
-      groupRef.current.rotation.y = 0;
+      groupRef.current.rotation.y = Math.PI;
       return;
     }
 
