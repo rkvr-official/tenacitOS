@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { readJsonCache, writeJsonCache } from "@/lib/client-cache";
 import { Cpu, HardDrive, MemoryStick, Activity, Network, Server, ShieldCheck, RotateCw, Wifi, Monitor, Play, Square, X, Loader2, Terminal, ArrowDown, ArrowUp } from "lucide-react";
 
 interface SystemdService {
@@ -71,17 +73,29 @@ export default function SystemMonitorPage() {
   const [logsModal, setLogsModal] = useState<LogsModal | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
+  const [stale, setStale] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
+    const cached = readJsonCache<SystemData>("tenacitos:system-monitor:v1");
+    if (cached) {
+      setSystemData(cached);
+      setLoading(false);
+      setStale(true);
+    }
+
     const fetchSystemData = async () => {
       try {
         const res = await fetch("/api/system/monitor");
-        if (res.ok) {
-          const data = await res.json();
-          setSystemData(data);
-          setLastUpdated(new Date());
-        }
-      } catch (error) {
-        console.error("Failed to fetch system data:", error);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        setSystemData(data);
+        writeJsonCache("tenacitos:system-monitor:v1", data);
+        setLastUpdated(new Date());
+        setError(null);
+        setStale(false);
+      } catch (e) {
+        if (!cached) setError(e instanceof Error ? e.message : "Failed to fetch");
       } finally {
         setLoading(false);
       }
@@ -138,34 +152,37 @@ export default function SystemMonitorPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto mb-4" style={{ borderColor: "var(--accent)" }}></div>
-          <p style={{ color: "var(--text-secondary)" }}>Loading system data...</p>
-        </div>
-      </div>
-    );
-  }
+  const showSkeleton = loading && !systemData;
 
-  if (!systemData) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <Server className="w-16 h-16 mx-auto mb-4" style={{ color: "var(--text-muted)" }} />
-          <p style={{ color: "var(--text-secondary)" }}>Failed to load system data</p>
-        </div>
-      </div>
-    );
-  }
+  const sd: SystemData = systemData ?? {
+    cpu: { usage: 0, cores: [], loadAvg: [0, 0, 0] },
+    ram: { total: 1, used: 0, free: 0, cached: 0 },
+    disk: { total: 1, used: 0, free: 0, percent: 0 },
+    network: { rx: 0, tx: 0 },
+    systemd: [],
+    tailscale: { active: false, ip: "-", devices: [] },
+    firewall: { active: false, rules: [], ruleCount: 0 },
+  };
 
-  const cpuColor = systemData.cpu.usage < 60 ? "var(--success)" : systemData.cpu.usage < 85 ? "var(--warning)" : "var(--error)";
-  const ramPercent = (systemData.ram.used / systemData.ram.total) * 100;
+  const cpuColor = systemData
+    ? sd.cpu.usage < 60
+      ? "var(--success)"
+      : sd.cpu.usage < 85
+        ? "var(--warning)"
+        : "var(--error)"
+    : "var(--text-muted)";
+
+  const ramPercent = systemData ? (sd.ram.used / sd.ram.total) * 100 : 0;
   const ramColor = ramPercent < 60 ? "var(--success)" : ramPercent < 85 ? "var(--warning)" : "var(--error)";
-  const diskColor = systemData.disk.percent < 60 ? "var(--success)" : systemData.disk.percent < 85 ? "var(--warning)" : "var(--error)";
+  const diskColor = systemData
+    ? sd.disk.percent < 60
+      ? "var(--success)"
+      : sd.disk.percent < 85
+        ? "var(--warning)"
+        : "var(--error)"
+    : "var(--text-muted)";
 
-  const activeServices = systemData.systemd.filter((s) => s.status === "active").length;
+  const activeServices = systemData?.systemd?.filter((s) => s.status === "active").length ?? 0;
 
   return (
     <div className="space-y-6">
@@ -197,11 +214,23 @@ export default function SystemMonitorPage() {
             <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: "var(--success)" }} />
             Live
           </span>
+          {(stale || loading) && (
+            <span className="text-xs px-2 py-1 rounded-full" style={{ color: "var(--text-muted)", border: "1px solid var(--border)", backgroundColor: "var(--card)" }}>
+              {stale ? "cached" : "loading"}
+            </span>
+          )}
           {lastUpdated && (
             <span className="text-xs" style={{ color: "var(--text-muted)" }}>{lastUpdated.toLocaleTimeString()}</span>
           )}
         </div>
       </div>
+
+      {error && !systemData && (
+        <div className="rounded-xl p-4" style={{ backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.35)" }}>
+          <p style={{ color: "var(--error)", fontWeight: 600 }}>Failed to load system data</p>
+          <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>{error}</p>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-2 border-b" style={{ borderColor: "var(--border)" }}>
@@ -234,17 +263,27 @@ export default function SystemMonitorPage() {
                 </div>
                 <div>
                   <h3 className="font-semibold" style={{ color: "var(--text-primary)" }}>CPU</h3>
-                  <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{systemData.cpu.cores.length} cores</p>
+                  <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                    {showSkeleton ? <Skeleton className="h-3 w-16" /> : `${sd.cpu.cores.length} cores`}
+                  </p>
                 </div>
               </div>
-              <span className="text-2xl font-bold" style={{ color: cpuColor }}>{systemData.cpu.usage}%</span>
+              <span className="text-2xl font-bold" style={{ color: cpuColor }}>
+                {showSkeleton ? <Skeleton className="h-7 w-14" /> : `${sd.cpu.usage}%`}
+              </span>
             </div>
             <div className="h-2 rounded-full overflow-hidden mb-3" style={{ backgroundColor: "var(--card-elevated)" }}>
-              <div className="h-full transition-all duration-500" style={{ width: `${systemData.cpu.usage}%`, backgroundColor: cpuColor }} />
+              <div className="h-full transition-all duration-500" style={{ width: `${sd.cpu.usage}%`, backgroundColor: cpuColor }} />
             </div>
             <div className="flex justify-between text-sm" style={{ color: "var(--text-secondary)" }}>
               <span>Load Average</span>
-              <span>{systemData.cpu.loadAvg[0].toFixed(2)} / {systemData.cpu.loadAvg[1].toFixed(2)} / {systemData.cpu.loadAvg[2].toFixed(2)}</span>
+              <span>
+                {showSkeleton ? (
+                  <Skeleton className="h-3 w-40" />
+                ) : (
+                  `${sd.cpu.loadAvg[0].toFixed(2)} / ${sd.cpu.loadAvg[1].toFixed(2)} / ${sd.cpu.loadAvg[2].toFixed(2)}`
+                )}
+              </span>
             </div>
           </div>
 
@@ -257,10 +296,14 @@ export default function SystemMonitorPage() {
                 </div>
                 <div>
                   <h3 className="font-semibold" style={{ color: "var(--text-primary)" }}>RAM</h3>
-                  <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{systemData.ram.used.toFixed(1)}GB / {systemData.ram.total.toFixed(1)}GB</p>
+                  <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                    {showSkeleton ? <Skeleton className="h-3 w-28" /> : `${sd.ram.used.toFixed(1)}GB / ${sd.ram.total.toFixed(1)}GB`}
+                  </p>
                 </div>
               </div>
-              <span className="text-2xl font-bold" style={{ color: ramColor }}>{ramPercent.toFixed(0)}%</span>
+              <span className="text-2xl font-bold" style={{ color: ramColor }}>
+                {showSkeleton ? <Skeleton className="h-7 w-14" /> : `${ramPercent.toFixed(0)}%`}
+              </span>
             </div>
             <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: "var(--card-elevated)" }}>
               <div className="h-full transition-all duration-500" style={{ width: `${ramPercent}%`, backgroundColor: ramColor }} />
@@ -276,13 +319,17 @@ export default function SystemMonitorPage() {
                 </div>
                 <div>
                   <h3 className="font-semibold" style={{ color: "var(--text-primary)" }}>Disk</h3>
-                  <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{systemData.disk.used.toFixed(1)}GB / {systemData.disk.total.toFixed(1)}GB</p>
+                  <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                    {showSkeleton ? <Skeleton className="h-3 w-28" /> : `${sd.disk.used.toFixed(1)}GB / ${sd.disk.total.toFixed(1)}GB`}
+                  </p>
                 </div>
               </div>
-              <span className="text-2xl font-bold" style={{ color: diskColor }}>{systemData.disk.percent.toFixed(0)}%</span>
+              <span className="text-2xl font-bold" style={{ color: diskColor }}>
+                {showSkeleton ? <Skeleton className="h-7 w-14" /> : `${sd.disk.percent.toFixed(0)}%`}
+              </span>
             </div>
             <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: "var(--card-elevated)" }}>
-              <div className="h-full transition-all duration-500" style={{ width: `${systemData.disk.percent}%`, backgroundColor: diskColor }} />
+              <div className="h-full transition-all duration-500" style={{ width: `${sd.disk.percent}%`, backgroundColor: diskColor }} />
             </div>
           </div>
 
@@ -303,27 +350,31 @@ export default function SystemMonitorPage() {
                   <ArrowDown className="w-4 h-4" style={{ color: "var(--success)" }} />
                   <span>RX (in)</span>
                 </div>
-                <span className="font-mono text-sm" style={{ color: "var(--text-primary)" }}>{systemData.network.rx.toFixed(2)} MB/s</span>
+                <span className="font-mono text-sm" style={{ color: "var(--text-primary)" }}>
+                  {showSkeleton ? <Skeleton className="h-3 w-20" /> : `${sd.network.rx.toFixed(2)} MB/s`}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
                   <ArrowUp className="w-4 h-4" style={{ color: "var(--accent)" }} />
                   <span>TX (out)</span>
                 </div>
-                <span className="font-mono text-sm" style={{ color: "var(--text-primary)" }}>{systemData.network.tx.toFixed(2)} MB/s</span>
+                <span className="font-mono text-sm" style={{ color: "var(--text-primary)" }}>
+                  {showSkeleton ? <Skeleton className="h-3 w-20" /> : `${sd.network.tx.toFixed(2)} MB/s`}
+                </span>
               </div>
               {/* Mini bar viz */}
               <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>RX</div>
                   <div className="h-1 rounded-full overflow-hidden" style={{ backgroundColor: "var(--card-elevated)" }}>
-                    <div className="h-full" style={{ width: `${Math.min(systemData.network.rx * 10, 100)}%`, backgroundColor: "var(--success)" }} />
+                    <div className="h-full" style={{ width: `${Math.min(sd.network.rx * 10, 100)}%`, backgroundColor: "var(--success)" }} />
                   </div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>TX</div>
                   <div className="h-1 rounded-full overflow-hidden" style={{ backgroundColor: "var(--card-elevated)" }}>
-                    <div className="h-full" style={{ width: `${Math.min(systemData.network.tx * 10, 100)}%`, backgroundColor: "var(--accent)" }} />
+                    <div className="h-full" style={{ width: `${Math.min(sd.network.tx * 10, 100)}%`, backgroundColor: "var(--accent)" }} />
                   </div>
                 </div>
               </div>
@@ -339,7 +390,7 @@ export default function SystemMonitorPage() {
           <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
             <h3 className="text-lg font-semibold mb-4 flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
               <Server className="w-5 h-5" style={{ color: "var(--accent)" }} />
-              Services ({activeServices}/{systemData.systemd.length} active)
+              Services ({activeServices}/{sd.systemd.length} active)
             </h3>
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -352,7 +403,7 @@ export default function SystemMonitorPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {systemData.systemd.map((svc) => {
+                  {sd.systemd.map((svc) => {
                     const isActionable = svc.backend === "pm2" || svc.backend === "systemd";
                     const restartKey = `${svc.name}-restart`;
                     const stopKey = `${svc.name}-stop`;
@@ -474,28 +525,28 @@ export default function SystemMonitorPage() {
             <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 rounded-lg" style={{ backgroundColor: "var(--card-elevated)" }}>
-                  <Wifi className="w-5 h-5" style={{ color: systemData.tailscale.active ? "var(--success)" : "var(--error)" }} />
+                  <Wifi className="w-5 h-5" style={{ color: sd.tailscale.active ? "var(--success)" : "var(--error)" }} />
                 </div>
                 <div>
                   <h3 className="font-semibold" style={{ color: "var(--text-primary)" }}>Tailscale VPN</h3>
-                  <p className="text-sm" style={{ color: systemData.tailscale.active ? "var(--success)" : "var(--error)" }}>
-                    {systemData.tailscale.active ? "Active" : "Inactive"}
+                  <p className="text-sm" style={{ color: sd.tailscale.active ? "var(--success)" : "var(--error)" }}>
+                    {sd.tailscale.active ? "Active" : "Inactive"}
                   </p>
                 </div>
               </div>
               <div className="space-y-2 mb-4">
                 <div className="flex justify-between text-sm">
                   <span style={{ color: "var(--text-secondary)" }}>This server</span>
-                  <span className="font-mono" style={{ color: "var(--text-primary)" }}>{systemData.tailscale.ip}</span>
+                  <span className="font-mono" style={{ color: "var(--text-primary)" }}>{sd.tailscale.ip}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span style={{ color: "var(--text-secondary)" }}>Devices connected</span>
-                  <span style={{ color: "var(--text-primary)" }}>{systemData.tailscale.devices.length}</span>
+                  <span style={{ color: "var(--text-primary)" }}>{sd.tailscale.devices.length}</span>
                 </div>
               </div>
-              {systemData.tailscale.devices.length > 0 && (
+              {sd.tailscale.devices.length > 0 && (
                 <div className="space-y-2 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
-                  {systemData.tailscale.devices.map((dev, i) => (
+                  {sd.tailscale.devices.map((dev, i) => (
                     <div key={i} className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
                         <Monitor className="w-3 h-3" style={{ color: "var(--text-muted)" }} />
@@ -516,21 +567,21 @@ export default function SystemMonitorPage() {
             <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 rounded-lg" style={{ backgroundColor: "var(--card-elevated)" }}>
-                  <ShieldCheck className="w-5 h-5" style={{ color: systemData.firewall.active ? "var(--success)" : "var(--error)" }} />
+                  <ShieldCheck className="w-5 h-5" style={{ color: sd.firewall.active ? "var(--success)" : "var(--error)" }} />
                 </div>
                 <div>
                   <h3 className="font-semibold" style={{ color: "var(--text-primary)" }}>Firewall (UFW)</h3>
-                  <p className="text-sm" style={{ color: systemData.firewall.active ? "var(--success)" : "var(--error)" }}>
-                    {systemData.firewall.active ? "Active" : "Inactive"}
+                  <p className="text-sm" style={{ color: sd.firewall.active ? "var(--success)" : "var(--error)" }}>
+                    {sd.firewall.active ? "Active" : "Inactive"}
                   </p>
                 </div>
               </div>
               <div className="space-y-2">
-                {systemData.firewall.rules.map((rule, i) => (
+                {sd.firewall.rules.map((rule, i) => (
                   <div
                     key={i}
                     className="flex items-start justify-between text-xs py-1.5"
-                    style={{ borderBottom: i < systemData.firewall.rules.length - 1 ? "1px solid var(--border)" : "none" }}
+                    style={{ borderBottom: i < sd.firewall.rules.length - 1 ? "1px solid var(--border)" : "none" }}
                   >
                     <div className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-2">

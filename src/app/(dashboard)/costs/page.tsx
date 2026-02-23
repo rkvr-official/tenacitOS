@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Calendar, PieChart } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, PieChart as RePieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart, Scatter, LabelList } from "recharts";
+import { readJsonCache, writeJsonCache } from "@/lib/client-cache";
 
 interface CostData {
   updatedAt?: string;
@@ -21,6 +22,20 @@ interface CostData {
 
 const COLORS = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#00C7BE', '#30B0C7', '#32ADE6', '#007AFF', '#5856D6', '#AF52DE', '#FF2D55'];
 
+const EMPTY_COST_DATA: CostData = {
+  today: 0,
+  yesterday: 0,
+  thisMonth: 0,
+  lastMonth: 0,
+  projected: 0,
+  budget: 100,
+  byAgent: [],
+  byModel: [],
+  daily: [],
+  hourly: [],
+  modelPricing: [],
+};
+
 const tooltipContentStyle = { backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px", color: "#fff" } as const;
 const tooltipItemStyle = { color: "#fff" } as const;
 const tooltipLabelStyle = { color: "#fff" } as const;
@@ -35,17 +50,20 @@ export default function CostsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [rankSort, setRankSort] = useState<"usage"|"perf"|"complex"|"research"|"thinking"|"speed">("usage");
 
+  const cacheKey = useMemo(
+    () => `tenacitos:costs:v1:${timeframe}:${deployment}`,
+    [timeframe, deployment]
+  );
+
   useEffect(() => {
-    try {
-      const k = `costs_cache_${timeframe}_${deployment}`;
-      const cached = localStorage.getItem(k);
-      if (cached) setCostData(JSON.parse(cached));
-    } catch {}
+    const cached = readJsonCache<CostData>(cacheKey);
+    if (cached) setCostData(cached);
 
     fetchCostData();
     const interval = setInterval(fetchCostData, 60000); // Update every minute
     return () => clearInterval(interval);
-  }, [timeframe, deployment]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeframe, deployment, cacheKey]);
 
   const fetchCostData = async () => {
     if (!costData) setLoading(true);
@@ -54,7 +72,7 @@ export default function CostsPage() {
       if (res.ok) {
         const data = await res.json();
         setCostData(data);
-        try { localStorage.setItem(`costs_cache_${timeframe}_${deployment}`, JSON.stringify(data)); } catch {}
+        writeJsonCache(cacheKey, data);
       }
     } catch (error) {
       console.error("Failed to fetch cost data:", error);
@@ -78,33 +96,13 @@ export default function CostsPage() {
       setRefreshing(false);
     }
   };
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto mb-4" style={{ borderColor: "var(--accent)" }}></div>
-          <p style={{ color: "var(--text-secondary)" }}>Loading cost data...</p>
-        </div>
-      </div>
-    );
-  }
+  const data = costData ?? EMPTY_COST_DATA;
 
-  if (!costData) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <DollarSign className="w-16 h-16 mx-auto mb-4" style={{ color: "var(--text-muted)" }} />
-          <p style={{ color: "var(--text-secondary)" }}>Failed to load cost data</p>
-        </div>
-      </div>
-    );
-  }
-
-  const budgetPercent = (costData.thisMonth / costData.budget) * 100;
+  const budgetPercent = data.budget > 0 ? (data.thisMonth / data.budget) * 100 : 0;
   const budgetColor = budgetPercent < 60 ? "var(--success)" : budgetPercent < 85 ? "var(--warning)" : "var(--error)";
-  const todayChange = ((costData.today - costData.yesterday) / costData.yesterday) * 100;
-  const monthChange = ((costData.thisMonth - costData.lastMonth) / costData.lastMonth) * 100;
-  const pricingRowsBase = costData.modelPricing || [];
+  const todayChange = data.yesterday > 0 ? ((data.today - data.yesterday) / data.yesterday) * 100 : 0;
+  const monthChange = data.lastMonth > 0 ? ((data.thisMonth - data.lastMonth) / data.lastMonth) * 100 : 0;
+  const pricingRowsBase = data.modelPricing || [];
   const score = (x:string)=> x==="high"?3:x==="medium"?2:1;
   const pricingRows = [...pricingRowsBase].sort((a,b)=>{
     if(rankSort==="usage") return (b.usageCost-a.usageCost)||(b.agentCount-a.agentCount);
@@ -209,6 +207,11 @@ export default function CostsPage() {
         </div>
       </div>
 
+      {loading && (
+        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Updating dynamic cost metrics…
+        </div>
+      )}
 
       {deployment === "local" && (
         <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
@@ -241,10 +244,10 @@ export default function CostsPage() {
             )}
           </div>
           <div className="text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
-            ${costData.today.toFixed(2)}
+            ${data.today.toFixed(2)}
           </div>
           <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-            vs ${costData.yesterday.toFixed(2)} yesterday
+            vs ${data.yesterday.toFixed(2)} yesterday
           </p>
         </div>
 
@@ -269,10 +272,10 @@ export default function CostsPage() {
             )}
           </div>
           <div className="text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
-            ${costData.thisMonth.toFixed(2)}
+            ${data.thisMonth.toFixed(2)}
           </div>
           <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-            vs ${costData.lastMonth.toFixed(2)} last month
+            vs ${data.lastMonth.toFixed(2)} last month
           </p>
         </div>
 
@@ -282,7 +285,7 @@ export default function CostsPage() {
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Projected (EOM)</span>
           </div>
           <div className="text-3xl font-bold" style={{ color: "var(--warning)" }}>
-            ${costData.projected.toFixed(2)}
+            ${data.projected.toFixed(2)}
           </div>
           <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
             Based on current pace
@@ -307,7 +310,7 @@ export default function CostsPage() {
             />
           </div>
           <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-            ${costData.thisMonth.toFixed(2)} / ${costData.budget.toFixed(2)}
+            ${data.thisMonth.toFixed(2)} / ${data.budget.toFixed(2)}
           </p>
         </div>
       </div>
@@ -320,7 +323,7 @@ export default function CostsPage() {
               Local Token Usage (Daily)
             </h3>
             <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={costData.daily}>
+              <BarChart data={data.daily}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
                 <YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} />
@@ -336,19 +339,19 @@ export default function CostsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
             <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Daily Cost Trend</h3>
-            <ResponsiveContainer width="100%" height={300}><LineChart data={costData.daily}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} /><Legend /><Line type="monotone" dataKey="cost" stroke="var(--accent)" strokeWidth={2} name="Cost ($)" /></LineChart></ResponsiveContainer>
+            <ResponsiveContainer width="100%" height={300}><LineChart data={data.daily}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} /><Legend /><Line type="monotone" dataKey="cost" stroke="var(--accent)" strokeWidth={2} name="Cost ($)" /></LineChart></ResponsiveContainer>
           </div>
           <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
             <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Cost by Agent</h3>
-            <ResponsiveContainer width="100%" height={300}><BarChart data={costData.byAgent}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="agent" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="cost" fill="var(--accent)" name="Cost ($)" /></BarChart></ResponsiveContainer>
+            <ResponsiveContainer width="100%" height={300}><BarChart data={data.byAgent}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="agent" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="cost" fill="var(--accent)" name="Cost ($)" /></BarChart></ResponsiveContainer>
           </div>
           <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
             <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Cost by Model</h3>
-            <ResponsiveContainer width="100%" height={300}><RePieChart><Pie data={costData.byModel} dataKey="cost" nameKey="model" cx="50%" cy="50%" outerRadius={100} label={(entry) => `${entry.model}: $${entry.cost.toFixed(2)}`}>{costData.byModel.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}</Pie><Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} /></RePieChart></ResponsiveContainer>
+            <ResponsiveContainer width="100%" height={300}><RePieChart><Pie data={data.byModel} dataKey="cost" nameKey="model" cx="50%" cy="50%" outerRadius={100} label={(entry) => `${entry.model}: $${entry.cost.toFixed(2)}`}>{data.byModel.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}</Pie><Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} /></RePieChart></ResponsiveContainer>
           </div>
           <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
             <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Token Usage (Daily)</h3>
-            <ResponsiveContainer width="100%" height={300}><BarChart data={costData.daily}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} /><Legend /><Bar dataKey="input" stackId="a" fill="#60A5FA" name="Input Tokens" /><Bar dataKey="output" stackId="a" fill="#F59E0B" name="Output Tokens" /></BarChart></ResponsiveContainer>
+            <ResponsiveContainer width="100%" height={300}><BarChart data={data.daily}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><YAxis stroke="var(--text-muted)" style={{ fontSize: "12px" }} /><Tooltip contentStyle={tooltipContentStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} /><Legend /><Bar dataKey="input" stackId="a" fill="#60A5FA" name="Input Tokens" /><Bar dataKey="output" stackId="a" fill="#F59E0B" name="Output Tokens" /></BarChart></ResponsiveContainer>
           </div>
         </div>
       )}
@@ -479,7 +482,7 @@ export default function CostsPage() {
         </div>
         <div className="flex items-center justify-between mt-4">
           <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
-            Page {pricingPage} / {totalPages} · {pricingRows.length} models{costData.updatedAt ? ` · updated ${new Date(costData.updatedAt).toLocaleTimeString()}` : ""}
+            Page {pricingPage} / {totalPages} · {pricingRows.length} models{data.updatedAt ? ` · updated ${new Date(data.updatedAt).toLocaleTimeString()}` : ""}
           </div>
           <div className="flex gap-2">
             <button onClick={() => setPricingPage((p) => Math.max(1, p - 1))} disabled={pricingPage === 1} className="px-3 py-1 rounded border" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Prev</button>
@@ -504,8 +507,8 @@ export default function CostsPage() {
               </tr>
             </thead>
             <tbody>
-              {costData.byAgent.map((agent) => {
-                const percent = (agent.cost / costData.thisMonth) * 100;
+              {data.byAgent.map((agent) => {
+                const percent = (agent.cost / data.thisMonth) * 100;
                 return (
                   <tr key={agent.agent} style={{ borderBottom: "1px solid var(--border)" }}>
                     <td className="py-3 px-4">
