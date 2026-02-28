@@ -45,6 +45,11 @@ export default function MovingAvatar({
   const walkingRef = useRef(false);
   const stuckFramesRef = useRef(0);
 
+  // Pathing: follow a graph of walkable waypoints (corridors) instead of pushing into desks.
+  const routeRef = useRef<Vector3[]>([]);
+  const goalRef = useRef<Vector3 | null>(null);
+  const waypointGraphRef = useRef<{ nodes: Vector3[]; edges: number[][] } | null>(null);
+
   // Desk + chair anchors (must match AgentDesk chair placement)
   const anchors = useMemo(() => {
     const desk = new Vector3(agent.position[0], 0.6, agent.position[2]);
@@ -119,6 +124,103 @@ export default function MovingAvatar({
     );
   };
 
+  const nearestNodeIndex = (nodes: Vector3[], p: Vector3): number => {
+    let best = 0;
+    let bestD = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < nodes.length; i++) {
+      const d = distXZ(nodes[i], p);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
+  };
+
+  const buildWaypointGraph = (): { nodes: Vector3[]; edges: number[][] } => {
+    // Generate a corridor grid and filter points that are collision-free.
+    // This gives us a stable walkable graph so agents don't "drive" into desks.
+    const xs = [-6, -3, 0, 3, 6].filter((x) => x >= officeBounds.minX + 0.8 && x <= officeBounds.maxX - 0.8);
+    const zs = [-6, -3, 0, 3, 6].filter((z) => z >= officeBounds.minZ + 0.8 && z <= officeBounds.maxZ - 0.8);
+
+    const nodes: Vector3[] = [];
+    for (const x of xs) {
+      for (const z of zs) {
+        const p = new Vector3(x, 0.6, z);
+        // Slightly stricter than normal: waypoints should never be near furniture.
+        if (!isPositionFree(p)) continue;
+        nodes.push(p);
+      }
+    }
+
+    // If too few nodes (tight office), fall back to a perimeter loop.
+    if (nodes.length < 8) {
+      const pad = 1.1;
+      const loop = [
+        new Vector3(officeBounds.minX + pad, 0.6, officeBounds.minZ + pad),
+        new Vector3(officeBounds.maxX - pad, 0.6, officeBounds.minZ + pad),
+        new Vector3(officeBounds.maxX - pad, 0.6, officeBounds.maxZ - pad),
+        new Vector3(officeBounds.minX + pad, 0.6, officeBounds.maxZ - pad),
+      ].filter(isPositionFree);
+      nodes.push(...loop);
+    }
+
+    const edges: number[][] = Array.from({ length: nodes.length }, () => []);
+
+    const connect = (a: number, b: number) => {
+      if (a === b) return;
+      if (!edges[a].includes(b)) edges[a].push(b);
+      if (!edges[b].includes(a)) edges[b].push(a);
+    };
+
+    // Connect nearest neighbors along rows/cols.
+    const eps = 1e-3;
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i];
+        const b = nodes[j];
+        const sameX = Math.abs(a.x - b.x) < eps;
+        const sameZ = Math.abs(a.z - b.z) < eps;
+        if (!sameX && !sameZ) continue;
+        const d = distXZ(a, b);
+        if (d > 3.2) continue; // only local neighbors
+        if (!isPathFree(a, b)) continue;
+        connect(i, j);
+      }
+    }
+
+    return { nodes, edges };
+  };
+
+  const bfsRoute = (graph: { nodes: Vector3[]; edges: number[][] }, start: number, goal: number): number[] | null => {
+    if (start === goal) return [start];
+    const q: number[] = [start];
+    const prev = new Map<number, number>();
+    prev.set(start, -1);
+
+    while (q.length) {
+      const v = q.shift()!;
+      for (const n of graph.edges[v] || []) {
+        if (prev.has(n)) continue;
+        prev.set(n, v);
+        if (n === goal) {
+          // reconstruct
+          const path: number[] = [];
+          let cur = n;
+          while (cur !== -1) {
+            path.push(cur);
+            cur = prev.get(cur)!;
+          }
+          path.reverse();
+          return path;
+        }
+        q.push(n);
+      }
+    }
+
+    return null;
+  };
+
   // ---- Initial position ----
   // Spawn close to the agent's desk (not on the chair), with a fallback to any free spot in the room.
   const [initialPos] = useState(() => {
@@ -175,72 +277,62 @@ export default function MovingAvatar({
     }
   }, [state.status, anchors.chair, agent.id, onPositionUpdate]);
 
-  // ---- Pick new wander targets (only when not working/thinking) ----
+  // ---- Pick new goals on a WALKABLE GRAPH (corridors) ----
   useEffect(() => {
     if (state.status === 'working' || state.status === 'thinking') return;
 
-    const pickTarget = () => {
-      // Mostly roam near desk (keeps identity), occasionally roam anywhere (room feels alive)
-      const roamGlobal = Math.random() < 0.05;
+    if (!waypointGraphRef.current) {
+      waypointGraphRef.current = buildWaypointGraph();
+    }
 
-      const sampleRoom = () => {
-        const x = officeBounds.minX + 0.8 + Math.random() * (officeBounds.maxX - officeBounds.minX - 1.6);
-        const z = officeBounds.minZ + 0.8 + Math.random() * (officeBounds.maxZ - officeBounds.minZ - 1.6);
-        return new Vector3(x, 0.6, z);
-      };
+    const pickGoal = () => {
+      const graph = waypointGraphRef.current;
+      if (!graph || graph.nodes.length < 2) return;
 
-      const sampleNearDesk = () => {
-        const radius = state.status === 'idle' ? 2.2 : 1.4;
-        const center = anchors.desk;
-        let p = randomAround(center, radius);
+      // Mostly roam near own desk, occasionally roam anywhere.
+      const roamGlobal = Math.random() < 0.12;
 
-        // Avoid hanging out behind the desk in the chair zone (chair is at z+1.8)
-        const maxZ = anchors.desk.z + 0.7;
-        if (p.z > maxZ) p.z = maxZ;
-        return p;
-      };
+      const near = graph.nodes
+        .map((p, idx) => ({ idx, d: distXZ(p, anchors.desk) }))
+        .filter((x) => x.d < 4.2);
 
-      const maxHop = roamGlobal ? 4.0 : 2.4; // prevent huge walks in a single target
+      const pickFrom = roamGlobal || near.length === 0
+        ? graph.nodes.map((_, idx) => idx)
+        : near.map((x) => x.idx);
 
-      let attempts = 0;
-      let newPos: Vector3;
-      const farFromObstacles = (p: Vector3) => {
-        // avoid targets hugging furniture; reduces "walking into desk" behavior
-        for (const o of obstacles) {
-          const d = distXZ(p, o.position);
-          if (d < o.radius + 1.05) return false;
-        }
-        return true;
-      };
+      const goalIdx = pickFrom[Math.floor(Math.random() * pickFrom.length)];
+      const startIdx = nearestNodeIndex(graph.nodes, currentPos.current);
 
-      do {
-        newPos = roamGlobal ? sampleRoom() : sampleNearDesk();
-        attempts++;
-        if (newPos.distanceTo(currentPos.current) > maxHop) continue;
-        if (!farFromObstacles(newPos)) continue;
-      } while ((!isPositionFree(newPos) || !isPathFree(currentPos.current, newPos)) && attempts < 80);
+      const routeIdxs = bfsRoute(graph, startIdx, goalIdx);
+      if (!routeIdxs || routeIdxs.length === 0) return;
 
-      if (attempts < 80) setTargetPos(newPos);
+      const routeNodes = routeIdxs.map((i) => graph.nodes[i].clone());
+      if (routeNodes.length && distXZ(routeNodes[0], currentPos.current) < 0.35) routeNodes.shift();
+
+      goalRef.current = graph.nodes[goalIdx].clone();
+      routeRef.current = routeNodes;
+
+      if (routeRef.current.length) setTargetPos(routeRef.current[0]);
     };
 
     const intervalMs = (() => {
       switch (state.status) {
         case 'idle':
-          return 4500 + Math.random() * 4500; // 4.5-9s (slower, more natural)
+          return 5200 + Math.random() * 5200;
         case 'error':
-          return 16000 + Math.random() * 12000; // mostly still
+          return 14000 + Math.random() * 12000;
         default:
-          return 9000 + Math.random() * 9000;
+          return 9200 + Math.random() * 9200;
       }
     })();
 
-    const t = setTimeout(pickTarget, 800);
-    const i = setInterval(pickTarget, intervalMs);
+    const t = setTimeout(pickGoal, 600);
+    const i = setInterval(pickGoal, intervalMs);
     return () => {
       clearTimeout(t);
       clearInterval(i);
     };
-  }, [state.status, anchors.idleCenter, officeBounds.minX, officeBounds.maxX, officeBounds.minZ, officeBounds.maxZ]);
+  }, [state.status, anchors.desk, officeBounds.minX, officeBounds.maxX, officeBounds.minZ, officeBounds.maxZ]);
 
   // ---- Move towards target with steering (more natural: avoid walking straight into objects) ----
   useFrame((_frameState, delta) => {
@@ -256,103 +348,52 @@ export default function MovingAvatar({
       return;
     }
 
-    // Desired direction
+    // Follow route waypoints.
+    // keep target updated to the next waypoint
+    if (routeRef.current.length) {
+      const next = routeRef.current[0];
+      // Avoid hammering state updates every frame.
+      if (distXZ(next, targetPos) > 0.05) setTargetPos(next);
+    }
+
     const toTarget = new Vector3().subVectors(targetPos, currentPos.current);
     toTarget.y = 0;
     const dist = toTarget.length();
-    if (dist < 0.06) {
+
+    // Advance route when we reach a waypoint.
+    if (dist < 0.22) {
+      if (routeRef.current.length) routeRef.current.shift();
+      if (routeRef.current.length) {
+        setTargetPos(routeRef.current[0]);
+      }
       walkingRef.current = false;
       return;
     }
 
-    const desiredDir = toTarget.normalize();
+    // Step towards target.
+    const dir = toTarget.normalize();
 
-    // Steering avoidance (repel from obstacles/avatars + walls)
-    const avoid = new Vector3(0, 0, 0);
-    const influenceObstacle = 2.1;
-    const influenceAvatar = 1.6;
+    const maxSpeed = state.status === 'idle' ? 0.42 : 0.30;
+    const stepLen = Math.min(0.028, maxSpeed * delta);
+    const step = dir.multiplyScalar(stepLen);
+    const candidate = currentPos.current.clone().add(step);
 
-    for (const obstacle of obstacles) {
-      const d = distXZ(currentPos.current, obstacle.position) - obstacle.radius;
-      if (d < influenceObstacle) {
-        const away = new Vector3(currentPos.current.x - obstacle.position.x, 0, currentPos.current.z - obstacle.position.z);
-        const len = away.length();
-        if (len > 1e-3) {
-          away.multiplyScalar(1 / len);
-          const s = (influenceObstacle - d) / influenceObstacle;
-          avoid.add(away.multiplyScalar(s * s * 1.9));
-        }
-      }
-    }
-
-    for (const [otherId, otherPos] of otherAvatarPositions.entries()) {
-      if (otherId === agent.id) continue;
-      const d = distXZ(currentPos.current, otherPos);
-      if (d < influenceAvatar) {
-        const away = new Vector3(currentPos.current.x - otherPos.x, 0, currentPos.current.z - otherPos.z);
-        const len = away.length();
-        if (len > 1e-3) {
-          away.multiplyScalar(1 / len);
-          const s = (influenceAvatar - d) / influenceAvatar;
-          avoid.add(away.multiplyScalar(s * s * 1.2));
-        }
-      }
-    }
-
-    // Wall repulsion
-    const margin = 1.1;
-    const k = 1.1;
-    if (currentPos.current.x < officeBounds.minX + margin) avoid.x += (officeBounds.minX + margin - currentPos.current.x) * k;
-    if (currentPos.current.x > officeBounds.maxX - margin) avoid.x -= (currentPos.current.x - (officeBounds.maxX - margin)) * k;
-    if (currentPos.current.z < officeBounds.minZ + margin) avoid.z += (officeBounds.minZ + margin - currentPos.current.z) * k;
-    if (currentPos.current.z > officeBounds.maxZ - margin) avoid.z -= (currentPos.current.z - (officeBounds.maxZ - margin)) * k;
-
-    const steer = desiredDir.clone().add(avoid).normalize();
-
-    // Step size: small, smooth.
-    const maxSpeed = state.status === 'idle' ? 0.45 : 0.32; // units/sec
-    const maxStep = 0.032; // cap per frame
-    const stepLen = Math.min(maxStep, maxSpeed * delta);
-
-    // Try multiple directions so they naturally go around desks instead of pushing into them.
-    const dirs: Vector3[] = [];
-    const perp = new Vector3(-steer.z, 0, steer.x).normalize();
-    dirs.push(steer.clone());
-    dirs.push(steer.clone().add(perp.clone().multiplyScalar(0.65)).normalize());
-    dirs.push(steer.clone().add(perp.clone().multiplyScalar(-0.65)).normalize());
-    dirs.push(perp.clone());
-    dirs.push(perp.clone().multiplyScalar(-1));
-
-    let moved = false;
-    let chosenStep = new Vector3(0, 0, 0);
-
-    for (const d of dirs) {
-      const p = currentPos.current.clone().add(d.clone().multiplyScalar(stepLen));
-      if (isPositionFree(p) && isPathFree(currentPos.current, p)) {
-        chosenStep = d.clone().multiplyScalar(stepLen);
-        currentPos.current.copy(p);
-        moved = true;
-        break;
-      }
-    }
-
-    if (moved) {
+    if (isPositionFree(candidate) && isPathFree(currentPos.current, candidate)) {
       stuckFramesRef.current = 0;
+      currentPos.current.copy(candidate);
       groupRef.current.position.copy(currentPos.current);
       onPositionUpdate(agent.id, currentPos.current.clone());
-
-      const angle = Math.atan2(chosenStep.x, chosenStep.z);
-      groupRef.current.rotation.y = angle;
+      groupRef.current.rotation.y = Math.atan2(step.x, step.z);
       walkingRef.current = true;
     } else {
       walkingRef.current = false;
       stuckFramesRef.current += 1;
 
-      // If stuck for ~2 seconds, pick a brand new target (prevents endless "driving" into a desk).
-      if (stuckFramesRef.current > 120) {
+      // If stuck, re-route by picking a new goal.
+      if (stuckFramesRef.current > 90) {
         stuckFramesRef.current = 0;
-        const side = randomAround(currentPos.current, 1.4);
-        if (isPositionFree(side) && isPathFree(currentPos.current, side)) setTargetPos(side);
+        routeRef.current = [];
+        goalRef.current = null;
       }
     }
   });

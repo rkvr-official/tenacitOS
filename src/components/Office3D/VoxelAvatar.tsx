@@ -56,6 +56,16 @@ export default function VoxelAvatar({
 
       // light bob
       groupRef.current.position.y = position[1] + Math.abs(Math.sin(t)) * 0.015;
+    } else {
+      // Reset to a neutral standing pose when not walking.
+      const lerpRot = (g: Group | null, target: number) => {
+        if (!g) return;
+        g.rotation.x += (target - g.rotation.x) * 0.18;
+      };
+      lerpRot(leftArmRef.current, 0);
+      lerpRot(rightArmRef.current, 0);
+      lerpRot(leftLegRef.current, 0);
+      lerpRot(rightLegRef.current, 0);
     }
 
     // Thinking: head bobbing
