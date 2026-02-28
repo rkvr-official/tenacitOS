@@ -116,7 +116,7 @@ function resolveWorkspace(agent: any): string {
 
 export function getAgents(): OpenclawAgent[] {
   const config = JSON.parse(readFileSync(OPENCLAW_CONFIG, "utf-8"));
-  const sessions = getAgentSessionsById();
+  const sessions = getSessionsByAgentId();
 
   return (config.agents?.list || []).map((agent: any) => {
     const info = getAgentDisplayInfo(agent.id, agent);
@@ -158,7 +158,18 @@ export function getAgents(): OpenclawAgent[] {
   });
 }
 
-function getAgentSessionsById(): Record<string, AgentSession[]> {
+let _sessionsByAgentCache: { expiresAt: number; value: Record<string, AgentSession[]> } | null = null;
+
+export function getSessionsByAgentId(): Record<string, AgentSession[]> {
+  const now = Date.now();
+  if (_sessionsByAgentCache && _sessionsByAgentCache.expiresAt > now) return _sessionsByAgentCache.value;
+
+  const value = computeSessionsByAgentId();
+  _sessionsByAgentCache = { expiresAt: now + 2500, value };
+  return value;
+}
+
+function computeSessionsByAgentId(): Record<string, AgentSession[]> {
   const grouped: Record<string, AgentSession[]> = {};
 
   const push = (agentId: string, s: AgentSession) => {
@@ -259,7 +270,7 @@ function getAgentSessionsById(): Record<string, AgentSession[]> {
 }
 
 export function getSessions(agentId: string): AgentSession[] {
-  return getAgentSessionsById()[agentId] || [];
+  return getSessionsByAgentId()[agentId] || [];
 }
 
 export function getSessionMessages(agentId: string, sessionId?: string): { sessionId: string | null; messages: SessionMessage[] } {

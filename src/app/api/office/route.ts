@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import os from "os";
 import path from "path";
 import { existsSync, statSync } from "fs";
-import { getAgents, getSessions } from "@/lib/openclaw";
+import { getAgents, getSessionsByAgentId } from "@/lib/openclaw";
 
 export const dynamic = "force-dynamic";
 
@@ -61,12 +61,13 @@ function fallbackLastSeenFromStore(agentId: string): number {
 export async function GET() {
   try {
     const agents = getAgents();
+    const sessionsByAgent = getSessionsByAgentId();
 
     const hostUptimeDays = Math.floor(os.uptime() / 86400);
     const now = Date.now();
 
     const result = agents.map((a) => {
-      const agentSessions = getSessions(a.id) || [];
+      const agentSessions = sessionsByAgent[a.id] || [];
       const latest = agentSessions[0];
 
       const status: OfficeStatus = latest
