@@ -15,6 +15,7 @@ import {
   DollarSign,
   Settings,
   History,
+  LayoutGrid,
 } from "lucide-react";
 
 const dockItems = [
@@ -25,6 +26,7 @@ const dockItems = [
   { href: "/agents", label: "Agents", icon: Bot },
   { href: "/office", label: "Office", icon: Building2 },
   { href: "/activity", label: "Activity", icon: Activity },
+  { href: "/boards", label: "Boards", icon: LayoutGrid },
   { href: "/cron", label: "Cron Jobs", icon: Clock },
   { href: "/sessions", label: "Sessions", icon: History },
   { href: "/skills", label: "Skills", icon: Puzzle },
