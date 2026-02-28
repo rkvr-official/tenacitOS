@@ -3,7 +3,7 @@
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Sky, Environment } from '@react-three/drei';
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import { Vector3 } from 'three';
+import { PCFShadowMap, Vector3 } from 'three';
 import { AGENTS as STATIC_AGENTS } from './agentsConfig';
 import type { AgentConfig, AgentState } from './agentsConfig';
 import AgentDesk from './AgentDesk';
@@ -201,6 +201,10 @@ export default function Office3D() {
         camera={{ position: [0, 8, 12], fov: 60 }}
         shadows
         gl={{ antialias: true, alpha: false }}
+        onCreated={({ gl }) => {
+          gl.shadowMap.enabled = true;
+          gl.shadowMap.type = PCFShadowMap;
+        }}
         style={{ width: '100%', height: '100%' }}
       >
         <Suspense fallback={
