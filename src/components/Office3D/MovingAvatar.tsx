@@ -47,9 +47,9 @@ export default function MovingAvatar({
     // So chair world offset ~= z + 0.9*2 = +1.8
     const chair = new Vector3(agent.position[0], 0.6, agent.position[2] + 1.8);
 
-    // Standing/wandering anchor: keep agents near their desk, but NOT seated.
-    // Put them between chair and desk so they look like they're hovering around the workstation.
-    const idleCenter = new Vector3(agent.position[0], 0.6, agent.position[2] + 1.1);
+    // Standing/wandering anchor: keep agents near their DESK (not at the chair).
+    // We'll pick targets around the desk but bias towards the front-side so they don't hover in the chair zone.
+    const idleCenter = desk.clone();
 
     return { desk, chair, idleCenter };
   }, [agent.position]);
@@ -150,17 +150,24 @@ export default function MovingAvatar({
     if (state.status === 'working' || state.status === 'thinking') return;
 
     const pickTarget = () => {
-      const radius = state.status === 'idle' ? 0.95 : 0.55; // wider but still local
+      const radius = state.status === 'idle' ? 1.25 : 0.75; // roam around desk more naturally
       const center = anchors.idleCenter;
 
       let attempts = 0;
       let newPos: Vector3;
       do {
         newPos = randomAround(center, radius);
-        attempts++;
-      } while (!isPositionFree(newPos) && attempts < 20);
 
-      if (attempts < 20) setTargetPos(newPos);
+        // Keep idle agents on the "front" side of the desk (away from the chair zone behind them).
+        // Desk is centered at z=agent.position[2]; chair is at z+1.8.
+        // Cap wander z to avoid standing in/behind the chair.
+        const maxZ = anchors.desk.z + 0.65;
+        if (newPos.z > maxZ) newPos.z = maxZ;
+
+        attempts++;
+      } while (!isPositionFree(newPos) && attempts < 30);
+
+      if (attempts < 30) setTargetPos(newPos);
     };
 
     const intervalMs = (() => {
