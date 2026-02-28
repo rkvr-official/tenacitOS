@@ -43,6 +43,7 @@ export default function MovingAvatar({
 }: MovingAvatarProps) {
   const groupRef = useRef<Group>(null);
   const walkingRef = useRef(false);
+  const stuckFramesRef = useRef(0);
 
   // Desk + chair anchors (must match AgentDesk chair placement)
   const anchors = useMemo(() => {
@@ -95,8 +96,9 @@ export default function MovingAvatar({
   };
 
   const isPathFree = (from: Vector3, to: Vector3): boolean => {
-    // More samples reduces desk-crossing artifacts when targets are far.
-    const samples = 8;
+    // Dynamic sampling: longer segments need more probes to avoid "cutting" through desks.
+    const length = distXZ(from, to);
+    const samples = Math.max(10, Math.min(36, Math.floor(length / 0.22)));
     for (let i = 1; i <= samples; i++) {
       const t = i / samples;
       const probe = from.clone().lerp(to, t);
@@ -198,17 +200,27 @@ export default function MovingAvatar({
         return p;
       };
 
-      const maxHop = roamGlobal ? 5.0 : 3.2; // prevent huge walks in a single target
+      const maxHop = roamGlobal ? 4.0 : 2.4; // prevent huge walks in a single target
 
       let attempts = 0;
       let newPos: Vector3;
+      const farFromObstacles = (p: Vector3) => {
+        // avoid targets hugging furniture; reduces "walking into desk" behavior
+        for (const o of obstacles) {
+          const d = distXZ(p, o.position);
+          if (d < o.radius + 1.05) return false;
+        }
+        return true;
+      };
+
       do {
         newPos = roamGlobal ? sampleRoom() : sampleNearDesk();
         attempts++;
         if (newPos.distanceTo(currentPos.current) > maxHop) continue;
-      } while ((!isPositionFree(newPos) || !isPathFree(currentPos.current, newPos)) && attempts < 60);
+        if (!farFromObstacles(newPos)) continue;
+      } while ((!isPositionFree(newPos) || !isPathFree(currentPos.current, newPos)) && attempts < 80);
 
-      if (attempts < 60) setTargetPos(newPos);
+      if (attempts < 80) setTargetPos(newPos);
     };
 
     const intervalMs = (() => {
@@ -297,39 +309,51 @@ export default function MovingAvatar({
 
     const steer = desiredDir.clone().add(avoid).normalize();
 
-    // Step size: small, smooth, no teleporting
-    const maxSpeed = state.status === 'idle' ? 0.55 : 0.4; // units/sec
-    const maxStep = 0.05; // cap per frame
+    // Step size: small, smooth.
+    const maxSpeed = state.status === 'idle' ? 0.45 : 0.32; // units/sec
+    const maxStep = 0.032; // cap per frame
     const stepLen = Math.min(maxStep, maxSpeed * delta);
 
-    const step = steer.multiplyScalar(stepLen);
-    let candidate = currentPos.current.clone().add(step);
+    // Try multiple directions so they naturally go around desks instead of pushing into them.
+    const dirs: Vector3[] = [];
+    const perp = new Vector3(-steer.z, 0, steer.x).normalize();
+    dirs.push(steer.clone());
+    dirs.push(steer.clone().add(perp.clone().multiplyScalar(0.65)).normalize());
+    dirs.push(steer.clone().add(perp.clone().multiplyScalar(-0.65)).normalize());
+    dirs.push(perp.clone());
+    dirs.push(perp.clone().multiplyScalar(-1));
 
-    // If blocked, try smaller steps before giving up
-    const tryScales = [1, 0.55, 0.25];
     let moved = false;
-    for (const s of tryScales) {
-      const p = currentPos.current.clone().add(step.clone().multiplyScalar(s));
+    let chosenStep = new Vector3(0, 0, 0);
+
+    for (const d of dirs) {
+      const p = currentPos.current.clone().add(d.clone().multiplyScalar(stepLen));
       if (isPositionFree(p) && isPathFree(currentPos.current, p)) {
-        candidate = p;
+        chosenStep = d.clone().multiplyScalar(stepLen);
+        currentPos.current.copy(p);
         moved = true;
         break;
       }
     }
 
     if (moved) {
-      currentPos.current.copy(candidate);
+      stuckFramesRef.current = 0;
       groupRef.current.position.copy(currentPos.current);
       onPositionUpdate(agent.id, currentPos.current.clone());
 
-      const angle = Math.atan2(step.x, step.z);
+      const angle = Math.atan2(chosenStep.x, chosenStep.z);
       groupRef.current.rotation.y = angle;
-      walkingRef.current = stepLen > 0.001;
+      walkingRef.current = true;
     } else {
       walkingRef.current = false;
-      // When stuck, pick a new target sooner
-      const sideStep = randomAround(currentPos.current, 0.7);
-      if (isPositionFree(sideStep)) setTargetPos(sideStep);
+      stuckFramesRef.current += 1;
+
+      // If stuck for ~2 seconds, pick a brand new target (prevents endless "driving" into a desk).
+      if (stuckFramesRef.current > 120) {
+        stuckFramesRef.current = 0;
+        const side = randomAround(currentPos.current, 1.4);
+        if (isPositionFree(side) && isPathFree(currentPos.current, side)) setTargetPos(side);
+      }
     }
   });
 
