@@ -32,7 +32,8 @@ async function checkUrl(url: string, timeoutMs = 5000): Promise<{ status: 'up' |
 
 async function checkSystemdService(name: string): Promise<ServiceCheck> {
   try {
-    const { stdout } = await execAsync(`systemctl is-active ${name} 2>/dev/null`);
+    const unit = name.includes(".") ? name : `${name}.service`;
+    const { stdout } = await execAsync(`systemctl is-active ${unit} 2>/dev/null`);
     const active = stdout.trim() === 'active';
     return { name, status: active ? 'up' : 'down', details: stdout.trim() };
   } catch {
