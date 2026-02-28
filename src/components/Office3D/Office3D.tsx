@@ -90,6 +90,8 @@ export default function Office3D() {
         });
 
         const nextAgents: AgentConfig[] = uniqueApiAgents.map((a, idx) => {
+          // Prefer explicit layout positions by agent id.
+          // Otherwise assign to a free static desk slot (deterministic by index).
           const pos = OFFICE_POSITIONS.get(a.id) ?? STATIC_AGENTS[idx % STATIC_AGENTS.length].position;
           return {
             id: a.id,
