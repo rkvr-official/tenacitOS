@@ -45,7 +45,9 @@ export default function MovingAvatar({
     // In AgentDesk:
     //  <group scale={2}><VoxelChair position={[0,0,0.9]} ... /></group>
     // So chair world offset ~= z + 0.9*2 = +1.8
-    const chair = new Vector3(agent.position[0], 0.6, agent.position[2] + 1.8);
+    // Seat height is ~0.88 in world units (VoxelChair seat at y=0.4 scaled by 2).
+    // Place seated avatars at ~0.9 so torso sits on the chair.
+    const chair = new Vector3(agent.position[0], 0.9, agent.position[2] + 1.8);
 
     // Standing/wandering anchor: keep agents near their DESK (not at the chair).
     // We'll pick targets around the desk but bias towards the front-side so they don't hover in the chair zone.
@@ -87,7 +89,8 @@ export default function MovingAvatar({
   };
 
   const isPathFree = (from: Vector3, to: Vector3): boolean => {
-    const samples = 4;
+    // More samples reduces desk-crossing artifacts when targets are far.
+    const samples = 8;
     for (let i = 1; i <= samples; i++) {
       const t = i / samples;
       const probe = from.clone().lerp(to, t);
@@ -169,8 +172,8 @@ export default function MovingAvatar({
     if (state.status === 'working' || state.status === 'thinking') return;
 
     const pickTarget = () => {
-      // 80%: roam near desk (keeps identity), 20%: roam anywhere (room feels alive)
-      const roamGlobal = Math.random() < 0.2;
+      // Mostly roam near desk (keeps identity), sometimes roam anywhere (room feels alive)
+      const roamGlobal = Math.random() < 0.1;
 
       const sampleRoom = () => {
         const x = officeBounds.minX + 0.8 + Math.random() * (officeBounds.maxX - officeBounds.minX - 1.6);
@@ -179,12 +182,12 @@ export default function MovingAvatar({
       };
 
       const sampleNearDesk = () => {
-        const radius = state.status === 'idle' ? 1.9 : 1.2;
+        const radius = state.status === 'idle' ? 2.2 : 1.4;
         const center = anchors.desk;
         let p = randomAround(center, radius);
 
         // Avoid hanging out behind the desk in the chair zone (chair is at z+1.8)
-        const maxZ = anchors.desk.z + 0.75;
+        const maxZ = anchors.desk.z + 0.7;
         if (p.z > maxZ) p.z = maxZ;
         return p;
       };
@@ -202,11 +205,11 @@ export default function MovingAvatar({
     const intervalMs = (() => {
       switch (state.status) {
         case 'idle':
-          return 3000 + Math.random() * 3000; // 3-6s (like upstream)
+          return 4500 + Math.random() * 4500; // 4.5-9s (slower, more natural)
         case 'error':
-          return 12000 + Math.random() * 8000; // mostly still
+          return 16000 + Math.random() * 12000; // mostly still
         default:
-          return 6000 + Math.random() * 6000;
+          return 9000 + Math.random() * 9000;
       }
     })();
 
@@ -229,8 +232,9 @@ export default function MovingAvatar({
       return;
     }
 
-    const speed = state.status === 'idle' ? 0.95 : 0.6;
-    const moveLerp = Math.min(1, delta * speed);
+    // Lower speed looks more natural at the current avatar scale.
+    const speed = state.status === 'idle' ? 0.45 : 0.3;
+    const moveLerp = Math.min(0.08, delta * speed);
 
     const newPos = currentPos.current.clone().lerp(targetPos, moveLerp);
 
@@ -253,17 +257,21 @@ export default function MovingAvatar({
     }
   });
 
+  // Walking state (for animation): moving and not seated
+  const walking = state.status !== 'working' && state.status !== 'thinking' && currentPos.current.distanceTo(targetPos) > 0.12;
+
   return (
-    <group ref={groupRef} scale={3}>
+    <group ref={groupRef} scale={2.4}>
       <VoxelAvatar
         agent={agent}
         position={[0, 0, 0]}
         isWorking={state.status === 'working'}
         isThinking={state.status === 'thinking'}
         isError={state.status === 'error'}
+        isWalking={walking}
         seated={state.status === 'working' || state.status === 'thinking'}
       />
-      <NameTag text={`${agent.emoji} ${agent.name}`} offset={[0, 1.05, 0]} />
+      <NameTag text={`${agent.emoji} ${agent.name}`} offset={[0, 1.15, 0]} />
     </group>
   );
 }

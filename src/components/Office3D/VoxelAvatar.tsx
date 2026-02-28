@@ -12,6 +12,7 @@ interface VoxelAvatarProps {
   isWorking?: boolean;
   isThinking?: boolean;
   isError?: boolean;
+  isWalking?: boolean;
   seated?: boolean;
 }
 
@@ -21,11 +22,14 @@ export default function VoxelAvatar({
   isWorking = false,
   isThinking = false,
   isError = false,
+  isWalking = false,
   seated = false,
 }: VoxelAvatarProps) {
   const groupRef = useRef<Group>(null);
   const leftArmRef = useRef<Group>(null);
   const rightArmRef = useRef<Group>(null);
+  const leftLegRef = useRef<Group>(null);
+  const rightLegRef = useRef<Group>(null);
   const headRef = useRef<Group>(null);
 
   // Animations
@@ -37,6 +41,21 @@ export default function VoxelAvatar({
       const time = state.clock.elapsedTime * 3;
       leftArmRef.current.rotation.x = Math.sin(time) * 0.3;
       rightArmRef.current.rotation.x = Math.sin(time + Math.PI) * 0.3;
+    }
+
+    // Walking: swing arms and legs
+    if (isWalking && !seated) {
+      const t = state.clock.elapsedTime * 6;
+      const swing = Math.sin(t) * 0.55;
+
+      if (leftArmRef.current) leftArmRef.current.rotation.x = swing;
+      if (rightArmRef.current) rightArmRef.current.rotation.x = -swing;
+
+      if (leftLegRef.current) leftLegRef.current.rotation.x = -swing;
+      if (rightLegRef.current) rightLegRef.current.rotation.x = swing;
+
+      // light bob
+      groupRef.current.position.y = position[1] + Math.abs(Math.sin(t)) * 0.015;
     }
 
     // Thinking: head bobbing
@@ -51,10 +70,9 @@ export default function VoxelAvatar({
       headRef.current.rotation.z = Math.sin(state.clock.elapsedTime * 4) * 0.15;
     }
 
-    // Idle breathing
-    if (!isWorking && !isThinking && !isError) {
-      const baseY = position[1] + (seated ? -0.12 : 0);
-      groupRef.current.position.y = baseY + Math.sin(state.clock.elapsedTime) * 0.01;
+    // Idle breathing (only when not walking)
+    if (!isWorking && !isThinking && !isError && !isWalking) {
+      groupRef.current.position.y = position[1] + Math.sin(state.clock.elapsedTime) * 0.01;
     }
   });
 
@@ -63,10 +81,8 @@ export default function VoxelAvatar({
   const shirtColor = agent.color;
   const pantsColor = '#4a5568';
 
-  const seatedOffset: [number, number, number] = seated ? [0, -0.12, -0.06] : [0, 0, 0];
-
   return (
-    <group ref={groupRef} position={[position[0] + seatedOffset[0], position[1] + seatedOffset[1], position[2] + seatedOffset[2]]}>
+    <group ref={groupRef} position={position}>
       {/* HEAD */}
       <group ref={headRef} position={[0, 0.35, 0]}>
         {/* Head cube */}
@@ -153,19 +169,23 @@ export default function VoxelAvatar({
       {/* LEGS + SHOES (hidden while seated behind desk/chair) */}
       {!seated && (
         <>
-          <Box args={[0.09, 0.18, 0.09]} position={[-0.05, -0.09, 0]} castShadow>
-            <meshStandardMaterial color={pantsColor} />
-          </Box>
-          <Box args={[0.09, 0.18, 0.09]} position={[0.05, -0.09, 0]} castShadow>
-            <meshStandardMaterial color={pantsColor} />
-          </Box>
+          <group ref={leftLegRef} position={[-0.05, 0, 0]}>
+            <Box args={[0.09, 0.18, 0.09]} position={[0, -0.09, 0]} castShadow>
+              <meshStandardMaterial color={pantsColor} />
+            </Box>
+            <Box args={[0.09, 0.04, 0.12]} position={[0, -0.2, 0.015]} castShadow>
+              <meshStandardMaterial color="#1f2937" />
+            </Box>
+          </group>
 
-          <Box args={[0.09, 0.04, 0.12]} position={[-0.05, -0.2, 0.015]} castShadow>
-            <meshStandardMaterial color="#1f2937" />
-          </Box>
-          <Box args={[0.09, 0.04, 0.12]} position={[0.05, -0.2, 0.015]} castShadow>
-            <meshStandardMaterial color="#1f2937" />
-          </Box>
+          <group ref={rightLegRef} position={[0.05, 0, 0]}>
+            <Box args={[0.09, 0.18, 0.09]} position={[0, -0.09, 0]} castShadow>
+              <meshStandardMaterial color={pantsColor} />
+            </Box>
+            <Box args={[0.09, 0.04, 0.12]} position={[0, -0.2, 0.015]} castShadow>
+              <meshStandardMaterial color="#1f2937" />
+            </Box>
+          </group>
         </>
       )}
 
