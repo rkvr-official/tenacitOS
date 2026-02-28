@@ -117,7 +117,8 @@ export default function AgentDesk({ agent, state, onClick, isSelected }: AgentDe
       <group scale={2}>
         <VoxelChair
           position={[0, 0, 0.9]}
-          rotation={[0, 0, 0]}
+          // Rotate so the seat faces the desk/monitor (monitor sits at z=-0.5).
+          rotation={[0, Math.PI, 0]}
           color="#1f2937"
         />
       </group>

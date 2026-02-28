@@ -73,6 +73,10 @@ export default function Office3D() {
           role: string;
           currentTask?: string;
           status?: 'working' | 'thinking' | 'idle' | 'error' | 'sleeping';
+          model?: string;
+          tokensPerHour?: number;
+          tasksInQueue?: number;
+          uptime?: number;
         }>;
 
         if (!Array.isArray(apiAgents) || apiAgents.length === 0) return;
@@ -116,10 +120,10 @@ export default function Office3D() {
             id: a.id,
             status,
             currentTask: a.currentTask,
-            model: undefined,
-            tokensPerHour: undefined,
-            tasksInQueue: undefined,
-            uptime: undefined,
+            model: (a as any).model,
+            tokensPerHour: typeof (a as any).tokensPerHour === "number" ? (a as any).tokensPerHour : undefined,
+            tasksInQueue: typeof (a as any).tasksInQueue === "number" ? (a as any).tasksInQueue : undefined,
+            uptime: typeof (a as any).uptime === "number" ? (a as any).uptime : undefined,
           };
         }
 
@@ -134,7 +138,7 @@ export default function Office3D() {
 
     load();
     // Poll a bit slower to reduce CPU/IO and keep UI responsive.
-    const i = setInterval(load, 5000);
+    const i = setInterval(load, 6000);
     return () => {
       cancelled = true;
       clearInterval(i);
