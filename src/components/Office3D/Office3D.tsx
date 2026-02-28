@@ -177,12 +177,18 @@ export default function Office3D() {
 
   // Definir obstáculos (muebles)
   const obstacles = [
-    // Desks: keep collision radius close to the real footprint.
-    // Too-large radii cause idle agents to get stuck because there is no free space near their own desk.
-    ...agents.map(agent => ({
-      position: new Vector3(agent.position[0], 0, agent.position[2]),
-      radius: 1.15
-    })),
+    // Desks + chairs (both should block walking)
+    ...agents.flatMap((agent) => [
+      {
+        position: new Vector3(agent.position[0], 0, agent.position[2]),
+        radius: 1.25,
+      },
+      {
+        // chair anchor matches MovingAvatar/AgentDesk
+        position: new Vector3(agent.position[0], 0, agent.position[2] + 1.8),
+        radius: 0.75,
+      },
+    ]),
     // Archivador
     { position: new Vector3(-8, 0, -5), radius: 0.8 },
     // Pizarra

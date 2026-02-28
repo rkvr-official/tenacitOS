@@ -70,25 +70,15 @@ export default function MovingAvatar({
 
   // ---- Collision helpers ----
   const isPositionFree = (pos: Vector3): boolean => {
-    const minDistanceToObstacle = 1.35; // stricter distance to furniture/desks
-    const minDistanceToAvatar = 1.0; // distance between avatars
-
-    const distXZ = (a: Vector3, b: Vector3) => {
-      const dx = a.x - b.x;
-      const dz = a.z - b.z;
-      return Math.sqrt(dx * dx + dz * dz);
-    };
-
-    const ownDesk = new Vector3(agent.position[0], 0, agent.position[2]);
+    // Keep these conservative: we now path through corridors, so we prefer not to graze furniture.
+    const minDistanceToObstacle = 0.55;
+    const minDistanceToAvatar = 0.95;
 
     for (const obstacle of obstacles) {
       // Obstacles are defined on y=0 while avatars float around y=0.6.
       // Use XZ distance only to make collisions consistent.
-      // Also: don't over-block the agent around its own desk, or it will never find a valid idle wander spot.
       const distance = distXZ(pos, obstacle.position);
-      const isOwnDesk = distXZ(obstacle.position, ownDesk) < 0.01;
-      const extra = isOwnDesk ? 0.35 : minDistanceToObstacle;
-      if (distance < obstacle.radius + extra) return false;
+      if (distance < obstacle.radius + minDistanceToObstacle) return false;
     }
 
     for (const [otherId, otherPos] of otherAvatarPositions.entries()) {
@@ -138,32 +128,29 @@ export default function MovingAvatar({
   };
 
   const buildWaypointGraph = (): { nodes: Vector3[]; edges: number[][] } => {
-    // Generate a corridor grid and filter points that are collision-free.
-    // This gives us a stable walkable graph so agents don't "drive" into desks.
-    const xs = [-6, -3, 0, 3, 6].filter((x) => x >= officeBounds.minX + 0.8 && x <= officeBounds.maxX - 0.8);
-    const zs = [-6, -3, 0, 3, 6].filter((z) => z >= officeBounds.minZ + 0.8 && z <= officeBounds.maxZ - 0.8);
-
+    // Dense corridor sampling: generates many possible walkable points, then connects locally.
+    // This makes pathing robust (few "stuck" cases) while still respecting furniture obstacles.
     const nodes: Vector3[] = [];
-    for (const x of xs) {
-      for (const z of zs) {
-        const p = new Vector3(x, 0.6, z);
-        // Slightly stricter than normal: waypoints should never be near furniture.
+
+    const pad = 1.05;
+    const step = 1.4;
+
+    for (let x = officeBounds.minX + pad; x <= officeBounds.maxX - pad; x += step) {
+      for (let z = officeBounds.minZ + pad; z <= officeBounds.maxZ - pad; z += step) {
+        const p = new Vector3(Number(x.toFixed(2)), 0.6, Number(z.toFixed(2)));
         if (!isPositionFree(p)) continue;
         nodes.push(p);
       }
     }
 
-    // If too few nodes (tight office), fall back to a perimeter loop.
-    if (nodes.length < 8) {
-      const pad = 1.1;
-      const loop = [
-        new Vector3(officeBounds.minX + pad, 0.6, officeBounds.minZ + pad),
-        new Vector3(officeBounds.maxX - pad, 0.6, officeBounds.minZ + pad),
-        new Vector3(officeBounds.maxX - pad, 0.6, officeBounds.maxZ - pad),
-        new Vector3(officeBounds.minX + pad, 0.6, officeBounds.maxZ - pad),
-      ].filter(isPositionFree);
-      nodes.push(...loop);
-    }
+    // Always include perimeter loop nodes as anchors.
+    const loop = [
+      new Vector3(officeBounds.minX + pad, 0.6, officeBounds.minZ + pad),
+      new Vector3(officeBounds.maxX - pad, 0.6, officeBounds.minZ + pad),
+      new Vector3(officeBounds.maxX - pad, 0.6, officeBounds.maxZ - pad),
+      new Vector3(officeBounds.minX + pad, 0.6, officeBounds.maxZ - pad),
+    ].filter(isPositionFree);
+    nodes.push(...loop);
 
     const edges: number[][] = Array.from({ length: nodes.length }, () => []);
 
@@ -173,19 +160,21 @@ export default function MovingAvatar({
       if (!edges[b].includes(a)) edges[b].push(a);
     };
 
-    // Connect nearest neighbors along rows/cols.
-    const eps = 1e-3;
+    // Connect each node to its nearest neighbors.
+    const maxNeighborDist = 2.2;
+    const k = 6;
+
     for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const a = nodes[i];
-        const b = nodes[j];
-        const sameX = Math.abs(a.x - b.x) < eps;
-        const sameZ = Math.abs(a.z - b.z) < eps;
-        if (!sameX && !sameZ) continue;
-        const d = distXZ(a, b);
-        if (d > 3.2) continue; // only local neighbors
-        if (!isPathFree(a, b)) continue;
-        connect(i, j);
+      const a = nodes[i];
+      const dists: Array<{ j: number; d: number }> = [];
+      for (let j = 0; j < nodes.length; j++) {
+        if (i === j) continue;
+        const d = distXZ(a, nodes[j]);
+        if (d <= maxNeighborDist) dists.push({ j, d });
+      }
+      dists.sort((x, y) => x.d - y.d);
+      for (const { j } of dists.slice(0, k)) {
+        if (isPathFree(a, nodes[j])) connect(i, j);
       }
     }
 
@@ -255,8 +244,12 @@ export default function MovingAvatar({
     return seated ? base.clone() : anchors.idleCenter.clone();
   });
 
-  const [targetPos, setTargetPos] = useState(initialPos);
+  const targetPosRef = useRef(initialPos.clone());
   const currentPos = useRef(initialPos.clone());
+
+  const setTarget = (p: Vector3) => {
+    targetPosRef.current = p.clone();
+  };
 
   // Notificar posición inicial
   useEffect(() => {
@@ -267,7 +260,7 @@ export default function MovingAvatar({
   // ---- State-driven anchoring: working/thinking snap to chair ----
   useEffect(() => {
     if (state.status === 'working' || state.status === 'thinking') {
-      setTargetPos(anchors.chair.clone());
+      setTarget(anchors.chair.clone());
       currentPos.current.copy(anchors.chair);
       if (groupRef.current) {
         groupRef.current.position.copy(anchors.chair);
@@ -312,7 +305,7 @@ export default function MovingAvatar({
       goalRef.current = graph.nodes[goalIdx].clone();
       routeRef.current = routeNodes;
 
-      if (routeRef.current.length) setTargetPos(routeRef.current[0]);
+      if (routeRef.current.length) setTarget(routeRef.current[0]);
     };
 
     const intervalMs = (() => {
@@ -348,15 +341,15 @@ export default function MovingAvatar({
       return;
     }
 
-    // Follow route waypoints.
-    // keep target updated to the next waypoint
+    const targetPos = targetPosRef.current;
+
+    // Follow route waypoints: keep target updated to the next waypoint
     if (routeRef.current.length) {
       const next = routeRef.current[0];
-      // Avoid hammering state updates every frame.
-      if (distXZ(next, targetPos) > 0.05) setTargetPos(next);
+      if (distXZ(next, targetPosRef.current) > 0.05) setTarget(next);
     }
 
-    const toTarget = new Vector3().subVectors(targetPos, currentPos.current);
+    const toTarget = new Vector3().subVectors(targetPosRef.current, currentPos.current);
     toTarget.y = 0;
     const dist = toTarget.length();
 
@@ -364,7 +357,7 @@ export default function MovingAvatar({
     if (dist < 0.22) {
       if (routeRef.current.length) routeRef.current.shift();
       if (routeRef.current.length) {
-        setTargetPos(routeRef.current[0]);
+        setTarget(routeRef.current[0]);
       }
       walkingRef.current = false;
       return;
