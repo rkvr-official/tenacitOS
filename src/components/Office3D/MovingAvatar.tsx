@@ -27,6 +27,11 @@ interface MovingAvatarProps {
 }
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+const distXZ = (a: Vector3, b: Vector3) => {
+  const dx = a.x - b.x;
+  const dz = a.z - b.z;
+  return Math.sqrt(dx * dx + dz * dz);
+};
 
 export default function MovingAvatar({
   agent,
@@ -37,6 +42,7 @@ export default function MovingAvatar({
   onPositionUpdate,
 }: MovingAvatarProps) {
   const groupRef = useRef<Group>(null);
+  const walkingRef = useRef(false);
 
   // Desk + chair anchors (must match AgentDesk chair placement)
   const anchors = useMemo(() => {
@@ -45,9 +51,9 @@ export default function MovingAvatar({
     // In AgentDesk:
     //  <group scale={2}><VoxelChair position={[0,0,0.9]} ... /></group>
     // So chair world offset ~= z + 0.9*2 = +1.8
-    // Seat height is ~0.88 in world units (VoxelChair seat at y=0.4 scaled by 2).
-    // Place seated avatars at ~0.9 so torso sits on the chair.
-    const chair = new Vector3(agent.position[0], 0.9, agent.position[2] + 1.8);
+    // Seat height is ~0.80 in world units (VoxelChair seat at y=0.4 scaled by 2).
+    // Place seated avatars slightly above that so they sit cleanly without clipping.
+    const chair = new Vector3(agent.position[0], 0.82, agent.position[2] + 1.8);
 
     // Standing/wandering anchor: keep agents near their DESK (not at the chair).
     // We'll pick targets around the desk but bias towards the front-side so they don't hover in the chair zone.
@@ -172,8 +178,8 @@ export default function MovingAvatar({
     if (state.status === 'working' || state.status === 'thinking') return;
 
     const pickTarget = () => {
-      // Mostly roam near desk (keeps identity), sometimes roam anywhere (room feels alive)
-      const roamGlobal = Math.random() < 0.1;
+      // Mostly roam near desk (keeps identity), occasionally roam anywhere (room feels alive)
+      const roamGlobal = Math.random() < 0.05;
 
       const sampleRoom = () => {
         const x = officeBounds.minX + 0.8 + Math.random() * (officeBounds.maxX - officeBounds.minX - 1.6);
@@ -192,14 +198,17 @@ export default function MovingAvatar({
         return p;
       };
 
+      const maxHop = roamGlobal ? 5.0 : 3.2; // prevent huge walks in a single target
+
       let attempts = 0;
       let newPos: Vector3;
       do {
         newPos = roamGlobal ? sampleRoom() : sampleNearDesk();
         attempts++;
-      } while ((!isPositionFree(newPos) || !isPathFree(currentPos.current, newPos)) && attempts < 40);
+        if (newPos.distanceTo(currentPos.current) > maxHop) continue;
+      } while ((!isPositionFree(newPos) || !isPathFree(currentPos.current, newPos)) && attempts < 60);
 
-      if (attempts < 40) setTargetPos(newPos);
+      if (attempts < 60) setTargetPos(newPos);
     };
 
     const intervalMs = (() => {
@@ -221,44 +230,111 @@ export default function MovingAvatar({
     };
   }, [state.status, anchors.idleCenter, officeBounds.minX, officeBounds.maxX, officeBounds.minZ, officeBounds.maxZ]);
 
-  // ---- Move smoothly towards target ----
-  useFrame((frameState, delta) => {
+  // ---- Move towards target with steering (more natural: avoid walking straight into objects) ----
+  useFrame((_frameState, delta) => {
     if (!groupRef.current) return;
 
-    // If seated, stay put
-    if (state.status === 'working' || state.status === 'thinking') {
-      groupRef.current.position.copy(anchors.chair);
+    const seatedNow = state.status === 'working' || state.status === 'thinking';
+    const seatedPos = anchors.chair.clone().add(new Vector3(0, 0, -0.12));
+
+    if (seatedNow) {
+      groupRef.current.position.copy(seatedPos);
       groupRef.current.rotation.y = Math.PI;
+      walkingRef.current = false;
       return;
     }
 
-    // Lower speed looks more natural at the current avatar scale.
-    const speed = state.status === 'idle' ? 0.45 : 0.3;
-    const moveLerp = Math.min(0.08, delta * speed);
+    // Desired direction
+    const toTarget = new Vector3().subVectors(targetPos, currentPos.current);
+    toTarget.y = 0;
+    const dist = toTarget.length();
+    if (dist < 0.06) {
+      walkingRef.current = false;
+      return;
+    }
 
-    const newPos = currentPos.current.clone().lerp(targetPos, moveLerp);
+    const desiredDir = toTarget.normalize();
 
-    if (isPositionFree(newPos) && isPathFree(currentPos.current, newPos)) {
-      currentPos.current.copy(newPos);
+    // Steering avoidance (repel from obstacles/avatars + walls)
+    const avoid = new Vector3(0, 0, 0);
+    const influenceObstacle = 2.1;
+    const influenceAvatar = 1.6;
+
+    for (const obstacle of obstacles) {
+      const d = distXZ(currentPos.current, obstacle.position) - obstacle.radius;
+      if (d < influenceObstacle) {
+        const away = new Vector3(currentPos.current.x - obstacle.position.x, 0, currentPos.current.z - obstacle.position.z);
+        const len = away.length();
+        if (len > 1e-3) {
+          away.multiplyScalar(1 / len);
+          const s = (influenceObstacle - d) / influenceObstacle;
+          avoid.add(away.multiplyScalar(s * s * 1.9));
+        }
+      }
+    }
+
+    for (const [otherId, otherPos] of otherAvatarPositions.entries()) {
+      if (otherId === agent.id) continue;
+      const d = distXZ(currentPos.current, otherPos);
+      if (d < influenceAvatar) {
+        const away = new Vector3(currentPos.current.x - otherPos.x, 0, currentPos.current.z - otherPos.z);
+        const len = away.length();
+        if (len > 1e-3) {
+          away.multiplyScalar(1 / len);
+          const s = (influenceAvatar - d) / influenceAvatar;
+          avoid.add(away.multiplyScalar(s * s * 1.2));
+        }
+      }
+    }
+
+    // Wall repulsion
+    const margin = 1.1;
+    const k = 1.1;
+    if (currentPos.current.x < officeBounds.minX + margin) avoid.x += (officeBounds.minX + margin - currentPos.current.x) * k;
+    if (currentPos.current.x > officeBounds.maxX - margin) avoid.x -= (currentPos.current.x - (officeBounds.maxX - margin)) * k;
+    if (currentPos.current.z < officeBounds.minZ + margin) avoid.z += (officeBounds.minZ + margin - currentPos.current.z) * k;
+    if (currentPos.current.z > officeBounds.maxZ - margin) avoid.z -= (currentPos.current.z - (officeBounds.maxZ - margin)) * k;
+
+    const steer = desiredDir.clone().add(avoid).normalize();
+
+    // Step size: small, smooth, no teleporting
+    const maxSpeed = state.status === 'idle' ? 0.55 : 0.4; // units/sec
+    const maxStep = 0.05; // cap per frame
+    const stepLen = Math.min(maxStep, maxSpeed * delta);
+
+    const step = steer.multiplyScalar(stepLen);
+    let candidate = currentPos.current.clone().add(step);
+
+    // If blocked, try smaller steps before giving up
+    const tryScales = [1, 0.55, 0.25];
+    let moved = false;
+    for (const s of tryScales) {
+      const p = currentPos.current.clone().add(step.clone().multiplyScalar(s));
+      if (isPositionFree(p) && isPathFree(currentPos.current, p)) {
+        candidate = p;
+        moved = true;
+        break;
+      }
+    }
+
+    if (moved) {
+      currentPos.current.copy(candidate);
       groupRef.current.position.copy(currentPos.current);
       onPositionUpdate(agent.id, currentPos.current.clone());
 
-      const direction = new Vector3().subVectors(targetPos, currentPos.current);
-      if (direction.length() > 0.03) {
-        const angle = Math.atan2(direction.x, direction.z);
-        groupRef.current.rotation.y = angle;
-      }
+      const angle = Math.atan2(step.x, step.z);
+      groupRef.current.rotation.y = angle;
+      walkingRef.current = stepLen > 0.001;
     } else {
-      // Try a gentle sidestep when blocked to avoid robotic stuck behavior
-      const sideStep = randomAround(currentPos.current, 0.5);
-      if (isPositionFree(sideStep)) {
-        setTargetPos(sideStep);
-      }
+      walkingRef.current = false;
+      // When stuck, pick a new target sooner
+      const sideStep = randomAround(currentPos.current, 0.7);
+      if (isPositionFree(sideStep)) setTargetPos(sideStep);
     }
   });
 
-  // Walking state (for animation): moving and not seated
-  const walking = state.status !== 'working' && state.status !== 'thinking' && currentPos.current.distanceTo(targetPos) > 0.12;
+  // Walking state (for animation)
+  const walking = walkingRef.current;
 
   return (
     <group ref={groupRef} scale={2.4}>
