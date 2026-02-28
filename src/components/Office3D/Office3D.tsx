@@ -172,19 +172,27 @@ export default function Office3D() {
 
   // Definir obstáculos (muebles)
   const obstacles = [
-    // Desks + chairs (both should block walking)
-    ...agents.flatMap((agent) => [
-      {
-        position: new Vector3(agent.position[0], 0, agent.position[2]),
-        // Slightly larger desk collider to prevent cutting across corners.
-        radius: 1.35,
-      },
-      {
+    // Desks + chairs (block walking). Use a multi-circle approximation for desks to reduce "cut-through".
+    ...agents.flatMap((agent) => {
+      const x = agent.position[0];
+      const z = agent.position[2];
+      const desk = [
+        { position: new Vector3(x, 0, z), radius: 0.95 },
+        // corners of 2 x 1.5 desk footprint
+        { position: new Vector3(x - 0.85, 0, z - 0.55), radius: 0.55 },
+        { position: new Vector3(x + 0.85, 0, z - 0.55), radius: 0.55 },
+        { position: new Vector3(x - 0.85, 0, z + 0.55), radius: 0.55 },
+        { position: new Vector3(x + 0.85, 0, z + 0.55), radius: 0.55 },
+      ];
+
+      const chair = {
         // chair anchor matches MovingAvatar/AgentDesk
-        position: new Vector3(agent.position[0], 0, agent.position[2] + 1.8),
-        radius: 0.85,
-      },
-    ]),
+        position: new Vector3(x, 0, z + 1.8),
+        radius: 0.9,
+      };
+
+      return [...desk, chair];
+    }),
     // Archivador
     { position: new Vector3(-8, 0, -5), radius: 0.8 },
     // Pizarra

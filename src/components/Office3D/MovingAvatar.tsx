@@ -33,6 +33,16 @@ const distXZ = (a: Vector3, b: Vector3) => {
   return Math.sqrt(dx * dx + dz * dz);
 };
 
+// Global per-page-load spawn reservations to avoid initial overlaps (no agent-to-agent coordination needed).
+const SPAWN_RESERVATIONS = new Map<string, Vector3>();
+const isSpawnReservedFree = (id: string, p: Vector3) => {
+  for (const [otherId, otherPos] of SPAWN_RESERVATIONS.entries()) {
+    if (otherId === id) continue;
+    if (distXZ(p, otherPos) < 1.1) return false;
+  }
+  return true;
+};
+
 export default function MovingAvatar({
   agent,
   state,
@@ -44,6 +54,7 @@ export default function MovingAvatar({
   const groupRef = useRef<Group>(null);
   const walkingRef = useRef(false);
   const stuckFramesRef = useRef(0);
+  const yieldUntilRef = useRef(0);
 
   // Pathing: follow a graph of walkable waypoints (corridors) instead of pushing into desks.
   const routeRef = useRef<Vector3[]>([]);
@@ -61,12 +72,14 @@ export default function MovingAvatar({
     // Place seated avatars slightly above that so they sit cleanly without clipping.
     const chair = new Vector3(agent.position[0], 0.82, agent.position[2] + 1.8);
 
-    // Standing/wandering anchor: keep agents near their DESK (not at the chair).
-    // We'll pick targets around the desk but bias towards the front-side so they don't hover in the chair zone.
-    const idleCenter = desk.clone();
+    // Walk anchor in front of the desk (monitor is at z=-0.5, so "front" is -Z).
+    // This keeps non-working agents from spawning in the chair zone.
+    const walk = new Vector3(agent.position[0], 0.6, agent.position[2] - 2.2);
+    walk.x = clamp(walk.x, officeBounds.minX + 1.0, officeBounds.maxX - 1.0);
+    walk.z = clamp(walk.z, officeBounds.minZ + 1.0, officeBounds.maxZ - 1.0);
 
-    return { desk, chair, idleCenter };
-  }, [agent.position]);
+    return { desk, chair, walk };
+  }, [agent.position, officeBounds.minX, officeBounds.maxX, officeBounds.minZ, officeBounds.maxZ]);
 
   // ---- Collision helpers ----
   const isStaticFree = (pos: Vector3): boolean => {
@@ -81,7 +94,7 @@ export default function MovingAvatar({
 
   const isPositionFree = (pos: Vector3): boolean => {
     // dynamic collisions: furniture + other avatars
-    const minDistanceToAvatar = 0.8;
+    const minDistanceToAvatar = 0.7;
 
     if (!isStaticFree(pos)) return false;
 
@@ -228,9 +241,7 @@ export default function MovingAvatar({
   // ---- Initial position ----
   // Spawn close to the agent's desk (not on the chair), with a fallback to any free spot in the room.
   const [initialPos] = useState(() => {
-    // Seated agents start at chair; otherwise spawn around desk.
     const seated = state.status === 'working' || state.status === 'thinking';
-    const base = seated ? anchors.chair : anchors.desk;
 
     const randomRing = (center: Vector3, minR: number, maxR: number) => {
       const angle = Math.random() * Math.PI * 2;
@@ -242,25 +253,36 @@ export default function MovingAvatar({
       );
     };
 
-    // 1) Try near-desk ring (outside desk collider), avoid chair zone behind desk
-    for (let i = 0; i < 70; i++) {
-      const candidate = seated ? base.clone() : randomRing(base, 2.0, 3.0);
-      if (!seated) {
-        const maxZ = anchors.desk.z + 0.7;
-        if (candidate.z > maxZ) candidate.z = maxZ;
+    if (seated) {
+      SPAWN_RESERVATIONS.set(agent.id, anchors.chair.clone());
+      return anchors.chair.clone();
+    }
+
+    // Prefer spawning in front of the desk (walk anchor), not on the chair and not on the desk.
+    for (let i = 0; i < 120; i++) {
+      const candidate = randomRing(anchors.walk, 0.4, 1.3);
+      if (!isSpawnReservedFree(agent.id, candidate)) continue;
+      if (isPositionFree(candidate)) {
+        SPAWN_RESERVATIONS.set(agent.id, candidate.clone());
+        return candidate;
       }
-      if (isPositionFree(candidate)) return candidate;
     }
 
-    // 2) Fallback: any free room position
-    for (let i = 0; i < 140; i++) {
-      const x = officeBounds.minX + 0.9 + Math.random() * (officeBounds.maxX - officeBounds.minX - 1.8);
-      const z = officeBounds.minZ + 0.9 + Math.random() * (officeBounds.maxZ - officeBounds.minZ - 1.8);
+    // Fallback: any free room position
+    for (let i = 0; i < 220; i++) {
+      const x = officeBounds.minX + 1.0 + Math.random() * (officeBounds.maxX - officeBounds.minX - 2.0);
+      const z = officeBounds.minZ + 1.0 + Math.random() * (officeBounds.maxZ - officeBounds.minZ - 2.0);
       const candidate = new Vector3(x, 0.6, z);
-      if (isPositionFree(candidate)) return candidate;
+      if (!isSpawnReservedFree(agent.id, candidate)) continue;
+      if (isPositionFree(candidate)) {
+        SPAWN_RESERVATIONS.set(agent.id, candidate.clone());
+        return candidate;
+      }
     }
 
-    return seated ? base.clone() : anchors.idleCenter.clone();
+    const fallback = anchors.walk.clone();
+    SPAWN_RESERVATIONS.set(agent.id, fallback.clone());
+    return fallback;
   });
 
   const targetPosRef = useRef(initialPos.clone());
@@ -360,6 +382,12 @@ export default function MovingAvatar({
       return;
     }
 
+    const now = Date.now();
+    if (yieldUntilRef.current > now) {
+      walkingRef.current = false;
+      return;
+    }
+
     const targetPos = targetPosRef.current;
 
     // Follow route waypoints: keep target updated to the next waypoint
@@ -419,6 +447,21 @@ export default function MovingAvatar({
     } else {
       walkingRef.current = false;
       stuckFramesRef.current += 1;
+
+      // If we're blocked by another avatar in a corridor, yield (prevents deadlocks).
+      if (stuckFramesRef.current > 12) {
+        let closest: { id: string; d: number } | null = null;
+        for (const [otherId, otherPos] of otherAvatarPositions.entries()) {
+          if (otherId === agent.id) continue;
+          const d = distXZ(currentPos.current, otherPos);
+          if (d < 0.95 && (!closest || d < closest.d)) closest = { id: otherId, d };
+        }
+        if (closest && agent.id > closest.id) {
+          yieldUntilRef.current = Date.now() + 900 + Math.floor(Math.random() * 700);
+          stuckFramesRef.current = 0;
+          return;
+        }
+      }
 
       // If stuck for ~1.5s, abandon route so next interval picks a new one.
       if (stuckFramesRef.current > 90) {

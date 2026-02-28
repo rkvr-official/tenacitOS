@@ -46,14 +46,29 @@ export default function RootLayout({
             __html: `(() => {
   const IGNORE = [
     'THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.',
+    'THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.',
     'THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated.',
   ];
-  const origWarn = console.warn.bind(console);
-  console.warn = (...args) => {
-    const msg = String(args?.[0] ?? '');
-    if (IGNORE.some((s) => msg.includes(s))) return;
-    origWarn(...args);
+
+  const patch = () => {
+    const wrap = (method) => {
+      const orig = console[method]?.bind(console);
+      if (!orig) return;
+      console[method] = (...args) => {
+        const msg = String(args?.[0] ?? '');
+        if (IGNORE.some((s) => msg.includes(s))) return;
+        orig(...args);
+      };
+    };
+    wrap('warn');
+    wrap('error');
   };
+
+  patch();
+  // Some devtools hooks override console methods after page load; re-apply a few times.
+  setTimeout(patch, 0);
+  setTimeout(patch, 250);
+  setTimeout(patch, 1500);
 })()`,
           }}
         />
