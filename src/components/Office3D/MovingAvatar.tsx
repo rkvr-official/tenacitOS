@@ -65,11 +65,16 @@ export default function MovingAvatar({
       return Math.sqrt(dx * dx + dz * dz);
     };
 
+    const ownDesk = new Vector3(agent.position[0], 0, agent.position[2]);
+
     for (const obstacle of obstacles) {
       // Obstacles are defined on y=0 while avatars float around y=0.6.
       // Use XZ distance only to make collisions consistent.
+      // Also: don't over-block the agent around its own desk, or it will never find a valid idle wander spot.
       const distance = distXZ(pos, obstacle.position);
-      if (distance < obstacle.radius + minDistanceToObstacle) return false;
+      const isOwnDesk = distXZ(obstacle.position, ownDesk) < 0.01;
+      const extra = isOwnDesk ? 0.35 : minDistanceToObstacle;
+      if (distance < obstacle.radius + extra) return false;
     }
 
     for (const [otherId, otherPos] of otherAvatarPositions.entries()) {
