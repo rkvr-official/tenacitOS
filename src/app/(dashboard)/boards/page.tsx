@@ -68,6 +68,8 @@ export default function BoardsPage() {
 
   const [agents, setAgents] = useState<Agent[]>([]);
 
+  const [draggingTaskId, setDraggingTaskId] = useState<string>("");
+
   const activeBoard = useMemo(() => boards.find((b) => b.id === activeBoardId) || null, [boards, activeBoardId]);
 
   const loadBoards = async () => {
@@ -170,14 +172,26 @@ export default function BoardsPage() {
     }
   };
 
-  const moveTask = async (taskId: string, status: BoardTask["status"]) => {
+  const updateTask = async (taskId: string, patch: Partial<BoardTask>) => {
     if (!activeBoardId) return;
     await fetch(`/api/boards/${activeBoardId}/tasks/${taskId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify(patch),
     }).catch(() => null);
     await loadBoards();
+  };
+
+  const moveTask = async (taskId: string, status: BoardTask["status"]) => {
+    await updateTask(taskId, { status });
+  };
+
+  const moveTaskWithPosition = async (
+    taskId: string,
+    status: BoardTask["status"],
+    position: number
+  ) => {
+    await updateTask(taskId, { status, position });
   };
 
   const openChatForTask = async (task: BoardTask) => {
@@ -564,16 +578,50 @@ export default function BoardsPage() {
                   </div>
                 </div>
 
-                <div className="p-3 space-y-3">
+                <div
+                  className="p-3 space-y-3"
+                  onDragOver={(e) => {
+                    if (!draggingTaskId) return;
+                    e.preventDefault();
+                  }}
+                  onDrop={async (e) => {
+                    if (!draggingTaskId) return;
+                    e.preventDefault();
+                    const taskId = draggingTaskId;
+                    setDraggingTaskId("");
+                    // Drop into column → move to end of column.
+                    const targetIndex = grouped[col.id].length;
+                    await moveTaskWithPosition(taskId, col.id, targetIndex);
+                  }}
+                >
                   {grouped[col.id].length === 0 ? (
                     <div className="text-sm" style={{ color: "var(--text-muted)" }}>No tasks</div>
                   ) : null}
 
-                  {grouped[col.id].map((t) => (
+                  {grouped[col.id].map((t, idx) => (
                     <div
                       key={t.id}
+                      draggable
+                      onDragStart={() => setDraggingTaskId(t.id)}
+                      onDragEnd={() => setDraggingTaskId("")}
+                      onDragOver={(e) => {
+                        if (!draggingTaskId || draggingTaskId === t.id) return;
+                        e.preventDefault();
+                      }}
+                      onDrop={async (e) => {
+                        if (!draggingTaskId || draggingTaskId === t.id) return;
+                        e.preventDefault();
+                        const taskId = draggingTaskId;
+                        setDraggingTaskId("");
+                        // Drop onto a task → insert at this index.
+                        await moveTaskWithPosition(taskId, col.id, idx);
+                      }}
                       className="rounded-xl p-3"
-                      style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
+                      style={{
+                        backgroundColor: "var(--card-elevated)",
+                        border: draggingTaskId === t.id ? "1px solid var(--accent)" : "1px solid var(--border)",
+                        cursor: "grab",
+                      }}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div style={{ minWidth: 0 }}>
