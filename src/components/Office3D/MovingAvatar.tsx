@@ -108,19 +108,38 @@ export default function MovingAvatar({
     );
   };
 
-  // ---- Initial position: spawn at the agent's station (NOT random across the office) ----
+  // ---- Initial position ----
+  // Spawn close to the agent's desk (not on the chair), with a fallback to any free spot in the room.
   const [initialPos] = useState(() => {
-    // Working/thinking should start seated, otherwise start near their chair
-    const base = state.status === 'working' || state.status === 'thinking' ? anchors.chair : anchors.idleCenter;
-    let pos = base.clone();
+    // Seated agents start at chair; otherwise spawn around desk.
+    const seated = state.status === 'working' || state.status === 'thinking';
+    const base = seated ? anchors.chair : anchors.desk;
 
-    // Nudge if colliding
-    for (let i = 0; i < 10; i++) {
-      if (isPositionFree(pos)) break;
-      pos = randomAround(base, 1.0);
+    const randomRing = (center: Vector3, minR: number, maxR: number) => {
+      const angle = Math.random() * Math.PI * 2;
+      const r = minR + Math.random() * (maxR - minR);
+      return new Vector3(
+        clamp(center.x + Math.cos(angle) * r, officeBounds.minX, officeBounds.maxX),
+        0.6,
+        clamp(center.z + Math.sin(angle) * r, officeBounds.minZ, officeBounds.maxZ)
+      );
+    };
+
+    // 1) Try near-desk ring
+    for (let i = 0; i < 40; i++) {
+      const candidate = seated ? base.clone() : randomRing(base, 0.9, 1.8);
+      if (isPositionFree(candidate)) return candidate;
     }
 
-    return pos;
+    // 2) Fallback: any free room position
+    for (let i = 0; i < 80; i++) {
+      const x = officeBounds.minX + 0.8 + Math.random() * (officeBounds.maxX - officeBounds.minX - 1.6);
+      const z = officeBounds.minZ + 0.8 + Math.random() * (officeBounds.maxZ - officeBounds.minZ - 1.6);
+      const candidate = new Vector3(x, 0.6, z);
+      if (isPositionFree(candidate)) return candidate;
+    }
+
+    return seated ? base.clone() : anchors.idleCenter.clone();
   });
 
   const [targetPos, setTargetPos] = useState(initialPos);
@@ -150,34 +169,44 @@ export default function MovingAvatar({
     if (state.status === 'working' || state.status === 'thinking') return;
 
     const pickTarget = () => {
-      const radius = state.status === 'idle' ? 1.25 : 0.75; // roam around desk more naturally
-      const center = anchors.idleCenter;
+      // 80%: roam near desk (keeps identity), 20%: roam anywhere (room feels alive)
+      const roamGlobal = Math.random() < 0.2;
+
+      const sampleRoom = () => {
+        const x = officeBounds.minX + 0.8 + Math.random() * (officeBounds.maxX - officeBounds.minX - 1.6);
+        const z = officeBounds.minZ + 0.8 + Math.random() * (officeBounds.maxZ - officeBounds.minZ - 1.6);
+        return new Vector3(x, 0.6, z);
+      };
+
+      const sampleNearDesk = () => {
+        const radius = state.status === 'idle' ? 1.9 : 1.2;
+        const center = anchors.desk;
+        let p = randomAround(center, radius);
+
+        // Avoid hanging out behind the desk in the chair zone (chair is at z+1.8)
+        const maxZ = anchors.desk.z + 0.75;
+        if (p.z > maxZ) p.z = maxZ;
+        return p;
+      };
 
       let attempts = 0;
       let newPos: Vector3;
       do {
-        newPos = randomAround(center, radius);
-
-        // Keep idle agents on the "front" side of the desk (away from the chair zone behind them).
-        // Desk is centered at z=agent.position[2]; chair is at z+1.8.
-        // Cap wander z to avoid standing in/behind the chair.
-        const maxZ = anchors.desk.z + 0.65;
-        if (newPos.z > maxZ) newPos.z = maxZ;
-
+        newPos = roamGlobal ? sampleRoom() : sampleNearDesk();
         attempts++;
-      } while (!isPositionFree(newPos) && attempts < 30);
+      } while ((!isPositionFree(newPos) || !isPathFree(currentPos.current, newPos)) && attempts < 40);
 
-      if (attempts < 30) setTargetPos(newPos);
+      if (attempts < 40) setTargetPos(newPos);
     };
 
     const intervalMs = (() => {
       switch (state.status) {
         case 'idle':
-          return 1600 + Math.random() * 1800; // 1.6-3.4s (more frequent micro-moves)
+          return 3000 + Math.random() * 3000; // 3-6s (like upstream)
         case 'error':
-          return 4500 + Math.random() * 2500; // 4.5-7s
+          return 12000 + Math.random() * 8000; // mostly still
         default:
-          return 9000;
+          return 6000 + Math.random() * 6000;
       }
     })();
 
