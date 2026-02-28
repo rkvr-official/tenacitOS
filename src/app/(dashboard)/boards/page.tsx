@@ -78,6 +78,7 @@ export default function BoardsPage() {
   const [editTags, setEditTags] = useState("");
   const [savingTask, setSavingTask] = useState(false);
   const [deletingTask, setDeletingTask] = useState(false);
+  const [saveOk, setSaveOk] = useState(false);
 
   const activeBoard = useMemo(() => boards.find((b) => b.id === activeBoardId) || null, [boards, activeBoardId]);
 
@@ -233,6 +234,7 @@ export default function BoardsPage() {
     if (!activeBoardId || !selectedTask) return;
 
     setSavingTask(true);
+    setSaveOk(false);
     try {
       const tags = editTags
         .split(/[,;\s]+/)
@@ -247,7 +249,8 @@ export default function BoardsPage() {
         tags: tags.length ? tags : undefined,
       });
 
-      setSelectedTask(null);
+      setSaveOk(true);
+      setTimeout(() => setSaveOk(false), 1200);
     } finally {
       setSavingTask(false);
     }
@@ -845,6 +848,15 @@ export default function BoardsPage() {
                 <div style={{ fontSize: "12px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
                   {selectedTask.id}
                 </div>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "4px" }}>
+                  Status: <span style={{ fontFamily: "var(--font-mono)" }}>{selectedTask.status}</span>
+                  {selectedTask.agentId ? (
+                    <> • Agent: <span style={{ fontFamily: "var(--font-mono)" }}>{selectedTask.agentId}</span></>
+                  ) : null}
+                  {selectedTask.sessionId ? (
+                    <> • Session: <span style={{ fontFamily: "var(--font-mono)" }}>{selectedTask.sessionId}</span></>
+                  ) : null}
+                </div>
               </div>
               <div style={{ display: "flex", gap: "8px" }}>
                 <button
@@ -986,7 +998,10 @@ export default function BoardsPage() {
                 />
               </label>
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "10px", marginTop: "8px" }}>
+                {saveOk ? (
+                  <div style={{ fontSize: "12px", color: "var(--success)" }}>Saved</div>
+                ) : null}
                 <button
                   onClick={saveSelectedTask}
                   disabled={savingTask || !editTitle.trim()}
