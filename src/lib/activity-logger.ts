@@ -13,7 +13,8 @@ export type ActivityType =
   | 'build' 
   | 'task' 
   | 'cron' 
-  | 'memory';
+  | 'memory'
+  | 'agent_action';
 
 export type ActivityStatus = 'success' | 'error' | 'pending';
 

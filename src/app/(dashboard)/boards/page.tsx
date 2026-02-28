@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LayoutGrid, Plus, RefreshCw, Send, MessageSquare, Download, Upload, Trash2, Pencil } from "lucide-react";
 
 interface BoardTask {
@@ -66,6 +66,7 @@ export default function BoardsPage() {
   const [chatSessionId, setChatSessionId] = useState<string>("");
   const [chatDraft, setChatDraft] = useState("");
   const [chatMessages, setChatMessages] = useState<Array<{ role?: string; content?: string; text?: string; timestamp?: string }>>([]);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -338,7 +339,15 @@ export default function BoardsPage() {
       const res = await fetch(url.toString(), { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      setChatMessages(Array.isArray(data?.messages) ? data.messages : []);
+      const msgs = Array.isArray(data?.messages) ? data.messages : [];
+      msgs.sort((a: any, b: any) => {
+        const ta = typeof a?.timestamp === "string" ? a.timestamp : "";
+        const tb = typeof b?.timestamp === "string" ? b.timestamp : "";
+        return ta.localeCompare(tb);
+      });
+      setChatMessages(msgs);
+      // keep view pinned to latest message
+      setTimeout(() => chatBottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" }), 0);
     } catch (e) {
       setChatError(e instanceof Error ? e.message : "Failed to load messages");
       setChatMessages([]);
@@ -459,7 +468,10 @@ export default function BoardsPage() {
         style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
       >
         <div className="flex flex-col md:flex-row md:items-center gap-3">
-          <div className="flex items-center gap-2 md:order-last">
+          <div
+            className="flex flex-wrap items-center justify-end gap-2 md:order-last"
+            style={{ marginTop: "22px" }}
+          >
             <button
               onClick={exportBoards}
               style={{
@@ -1274,6 +1286,7 @@ export default function BoardsPage() {
                     <div style={{ whiteSpace: "pre-wrap" }}>{(m.content || m.text || "").toString()}</div>
                   </div>
                 ))}
+                <div ref={chatBottomRef} />
               </div>
             )}
           </div>

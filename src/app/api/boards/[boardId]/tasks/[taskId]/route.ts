@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteTask, getBoard, updateTask } from "@/lib/boards-store";
 import { logActivity } from "@/lib/activity-logger";
+import { sendAgentMessage } from "@/lib/openclaw";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,35 @@ export async function PATCH(
       logActivity("task", `Moved task: ${task.title} → ${patch.status}`, "success", {
         metadata: { boardId, taskId, from: before.status, to: patch.status },
       });
+
+      // If task moved to in_progress and has an agent, trigger the agent with context.
+      if (patch.status === "in_progress" && task.agentId) {
+        try {
+          const board = getBoard(boardId);
+          const msg = [
+            `You have a task in progress (board: ${board?.name || boardId}).`,
+            `Title: ${task.title}`,
+            task.description ? `Description: ${task.description}` : null,
+            task.tags?.length ? `Tags: ${task.tags.join(", ")}` : null,
+            "\nReply here with progress updates.",
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          const result = sendAgentMessage(task.agentId, msg, task.sessionId);
+          if (result?.sessionId && result.sessionId !== task.sessionId) {
+            updateTask(boardId, taskId, { sessionId: result.sessionId });
+          }
+
+          logActivity("agent_action", `Triggered agent ${task.agentId} for task: ${task.title}`, "success", {
+            metadata: { boardId, taskId, agentId: task.agentId, sessionId: result?.sessionId },
+          });
+        } catch (e) {
+          logActivity("agent_action", `Failed triggering agent for task: ${task.title}`, "error", {
+            metadata: { boardId, taskId, error: e instanceof Error ? e.message : String(e) },
+          });
+        }
+      }
     } else if (typeof patch?.position === "number") {
       logActivity("task", `Reordered task: ${task.title}`, "success", {
         metadata: { boardId, taskId, position: patch.position },
