@@ -49,7 +49,11 @@ export default function BoardsPage() {
   const [newTaskDesc, setNewTaskDesc] = useState("");
   const [newTaskPriority, setNewTaskPriority] = useState<BoardTask["priority"]>("medium");
   const [newTaskAgentId, setNewTaskAgentId] = useState<string>("");
+  const [newTaskTags, setNewTaskTags] = useState<string>("");
   const [creatingTask, setCreatingTask] = useState(false);
+
+  const [search, setSearch] = useState<string>("");
+  const [tagFilter, setTagFilter] = useState<string>("");
 
   // Lightweight “agent texting” drawer
   const [chatOpen, setChatOpen] = useState(false);
@@ -135,6 +139,11 @@ export default function BoardsPage() {
 
     setCreatingTask(true);
     try {
+      const tags = newTaskTags
+        .split(/[,;\s]+/)
+        .map((t) => t.trim())
+        .filter(Boolean);
+
       const res = await fetch(`/api/boards/${activeBoardId}/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -143,6 +152,7 @@ export default function BoardsPage() {
           description: newTaskDesc.trim() || undefined,
           priority: newTaskPriority,
           agentId: newTaskAgentId || undefined,
+          tags: tags.length ? tags : undefined,
         }),
       });
       const data = await res.json();
@@ -151,6 +161,7 @@ export default function BoardsPage() {
       setNewTaskDesc("");
       setNewTaskPriority("medium");
       setNewTaskAgentId("");
+      setNewTaskTags("");
       await loadBoards();
     } catch (e) {
       console.error(e);
@@ -205,6 +216,14 @@ export default function BoardsPage() {
     }
   };
 
+  useEffect(() => {
+    if (!chatOpen || !chatAgentId) return;
+    const interval = setInterval(() => {
+      loadChat(chatAgentId, chatSessionId || undefined);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [chatOpen, chatAgentId, chatSessionId]);
+
   const sendChat = async () => {
     if (!activeBoardId || !chatTaskId || !chatAgentId) return;
     const msg = chatDraft.trim();
@@ -242,7 +261,19 @@ export default function BoardsPage() {
   };
 
   const grouped = useMemo(() => {
-    const tasks = activeBoard?.tasks || [];
+    const q = search.trim().toLowerCase();
+    const tagq = tagFilter.trim().toLowerCase();
+
+    const tasksAll = activeBoard?.tasks || [];
+    const tasks = tasksAll.filter((t) => {
+      const hay = `${t.title} ${t.description || ""}`.toLowerCase();
+      if (q && !hay.includes(q)) return false;
+      if (tagq) {
+        const tags = (t.tags || []).map((x) => x.toLowerCase());
+        if (!tags.some((x) => x.includes(tagq))) return false;
+      }
+      return true;
+    });
     const by: Record<BoardTask["status"], BoardTask[]> = {
       backlog: [],
       in_progress: [],
@@ -253,7 +284,7 @@ export default function BoardsPage() {
       by[k] = by[k].slice().sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
     }
     return by;
-  }, [activeBoard]);
+  }, [activeBoard, search, tagFilter]);
 
   return (
     <div className="p-4 md:p-8">
@@ -368,9 +399,43 @@ export default function BoardsPage() {
 
       {activeBoard ? (
         <>
-          {/* Task create */}
+          {/* Task create + filters */}
           <div className="mb-6 rounded-xl p-4" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
             <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+              <div className="md:col-span-6">
+                <label className="block text-xs mb-2" style={{ color: "var(--text-muted)" }}>Search</label>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search title/description…"
+                  style={{
+                    width: "100%",
+                    backgroundColor: "rgba(42, 42, 42, 0.5)",
+                    color: "var(--text-secondary)",
+                    padding: "0.6rem 0.75rem",
+                    borderRadius: "0.6rem",
+                    border: "1px solid var(--border)",
+                    outline: "none",
+                  }}
+                />
+              </div>
+              <div className="md:col-span-6">
+                <label className="block text-xs mb-2" style={{ color: "var(--text-muted)" }}>Tag filter</label>
+                <input
+                  value={tagFilter}
+                  onChange={(e) => setTagFilter(e.target.value)}
+                  placeholder="e.g. ui, urgent"
+                  style={{
+                    width: "100%",
+                    backgroundColor: "rgba(42, 42, 42, 0.5)",
+                    color: "var(--text-secondary)",
+                    padding: "0.6rem 0.75rem",
+                    borderRadius: "0.6rem",
+                    border: "1px solid var(--border)",
+                    outline: "none",
+                  }}
+                />
+              </div>
               <div className="md:col-span-4">
                 <label className="block text-xs mb-2" style={{ color: "var(--text-muted)" }}>Title</label>
                 <input
@@ -447,6 +512,23 @@ export default function BoardsPage() {
                   ))}
                 </select>
               </div>
+              <div className="md:col-span-10">
+                <label className="block text-xs mb-2" style={{ color: "var(--text-muted)" }}>Tags (optional)</label>
+                <input
+                  value={newTaskTags}
+                  onChange={(e) => setNewTaskTags(e.target.value)}
+                  placeholder="ui, kanban, urgent"
+                  style={{
+                    width: "100%",
+                    backgroundColor: "rgba(42, 42, 42, 0.5)",
+                    color: "var(--text-secondary)",
+                    padding: "0.6rem 0.75rem",
+                    borderRadius: "0.6rem",
+                    border: "1px solid var(--border)",
+                    outline: "none",
+                  }}
+                />
+              </div>
               <div className="md:col-span-12 flex justify-end">
                 <button
                   onClick={createTask}
@@ -502,6 +584,29 @@ export default function BoardsPage() {
                         </div>
                         <div style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>{t.priority}</div>
                       </div>
+
+                      {t.tags && t.tags.length ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {t.tags.map((tag) => (
+                            <button
+                              key={tag}
+                              onClick={() => setTagFilter(tag)}
+                              title="Filter by tag"
+                              style={{
+                                padding: "0.15rem 0.55rem",
+                                borderRadius: "9999px",
+                                border: "1px solid var(--border)",
+                                backgroundColor: "rgba(255, 59, 48, 0.10)",
+                                color: "var(--accent)",
+                                cursor: "pointer",
+                                fontSize: "11px",
+                              }}
+                            >
+                              {tag}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
 
                       <div className="mt-3 flex items-center justify-between gap-2">
                         <div className="flex gap-2">
