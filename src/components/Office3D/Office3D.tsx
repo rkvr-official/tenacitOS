@@ -181,12 +181,13 @@ export default function Office3D() {
     ...agents.flatMap((agent) => [
       {
         position: new Vector3(agent.position[0], 0, agent.position[2]),
-        radius: 1.25,
+        // Slightly larger desk collider to prevent cutting across corners.
+        radius: 1.35,
       },
       {
         // chair anchor matches MovingAvatar/AgentDesk
         position: new Vector3(agent.position[0], 0, agent.position[2] + 1.8),
-        radius: 0.75,
+        radius: 0.85,
       },
     ]),
     // Archivador

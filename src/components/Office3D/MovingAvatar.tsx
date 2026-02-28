@@ -69,17 +69,21 @@ export default function MovingAvatar({
   }, [agent.position]);
 
   // ---- Collision helpers ----
-  const isPositionFree = (pos: Vector3): boolean => {
-    // Keep these conservative: we now path through corridors, so we prefer not to graze furniture.
-    const minDistanceToObstacle = 0.55;
-    const minDistanceToAvatar = 0.95;
-
+  const isStaticFree = (pos: Vector3): boolean => {
+    // static collisions: furniture only
+    const minDistanceToObstacle = 0.75;
     for (const obstacle of obstacles) {
-      // Obstacles are defined on y=0 while avatars float around y=0.6.
-      // Use XZ distance only to make collisions consistent.
       const distance = distXZ(pos, obstacle.position);
       if (distance < obstacle.radius + minDistanceToObstacle) return false;
     }
+    return true;
+  };
+
+  const isPositionFree = (pos: Vector3): boolean => {
+    // dynamic collisions: furniture + other avatars
+    const minDistanceToAvatar = 0.8;
+
+    if (!isStaticFree(pos)) return false;
 
     for (const [otherId, otherPos] of otherAvatarPositions.entries()) {
       if (otherId === agent.id) continue;
@@ -90,10 +94,21 @@ export default function MovingAvatar({
     return true;
   };
 
-  const isPathFree = (from: Vector3, to: Vector3): boolean => {
-    // Dynamic sampling: longer segments need more probes to avoid "cutting" through desks.
+  const isStaticPathFree = (from: Vector3, to: Vector3): boolean => {
     const length = distXZ(from, to);
-    const samples = Math.max(10, Math.min(36, Math.floor(length / 0.22)));
+    const samples = Math.max(12, Math.min(44, Math.floor(length / 0.2)));
+    for (let i = 1; i <= samples; i++) {
+      const t = i / samples;
+      const probe = from.clone().lerp(to, t);
+      if (!isStaticFree(probe)) return false;
+    }
+    return true;
+  };
+
+  const isPathFree = (from: Vector3, to: Vector3): boolean => {
+    // dynamic version (includes avatar avoidance)
+    const length = distXZ(from, to);
+    const samples = Math.max(12, Math.min(44, Math.floor(length / 0.2)));
     for (let i = 1; i <= samples; i++) {
       const t = i / samples;
       const probe = from.clone().lerp(to, t);
@@ -138,7 +153,7 @@ export default function MovingAvatar({
     for (let x = officeBounds.minX + pad; x <= officeBounds.maxX - pad; x += step) {
       for (let z = officeBounds.minZ + pad; z <= officeBounds.maxZ - pad; z += step) {
         const p = new Vector3(Number(x.toFixed(2)), 0.6, Number(z.toFixed(2)));
-        if (!isPositionFree(p)) continue;
+        if (!isStaticFree(p)) continue;
         nodes.push(p);
       }
     }
@@ -149,7 +164,7 @@ export default function MovingAvatar({
       new Vector3(officeBounds.maxX - pad, 0.6, officeBounds.minZ + pad),
       new Vector3(officeBounds.maxX - pad, 0.6, officeBounds.maxZ - pad),
       new Vector3(officeBounds.minX + pad, 0.6, officeBounds.maxZ - pad),
-    ].filter(isPositionFree);
+    ].filter(isStaticFree);
     nodes.push(...loop);
 
     const edges: number[][] = Array.from({ length: nodes.length }, () => []);
@@ -174,7 +189,7 @@ export default function MovingAvatar({
       }
       dists.sort((x, y) => x.d - y.d);
       for (const { j } of dists.slice(0, k)) {
-        if (isPathFree(a, nodes[j])) connect(i, j);
+        if (isStaticPathFree(a, nodes[j])) connect(i, j);
       }
     }
 
@@ -227,16 +242,20 @@ export default function MovingAvatar({
       );
     };
 
-    // 1) Try near-desk ring
-    for (let i = 0; i < 40; i++) {
-      const candidate = seated ? base.clone() : randomRing(base, 0.9, 1.8);
+    // 1) Try near-desk ring (outside desk collider), avoid chair zone behind desk
+    for (let i = 0; i < 70; i++) {
+      const candidate = seated ? base.clone() : randomRing(base, 2.0, 3.0);
+      if (!seated) {
+        const maxZ = anchors.desk.z + 0.7;
+        if (candidate.z > maxZ) candidate.z = maxZ;
+      }
       if (isPositionFree(candidate)) return candidate;
     }
 
     // 2) Fallback: any free room position
-    for (let i = 0; i < 80; i++) {
-      const x = officeBounds.minX + 0.8 + Math.random() * (officeBounds.maxX - officeBounds.minX - 1.6);
-      const z = officeBounds.minZ + 0.8 + Math.random() * (officeBounds.maxZ - officeBounds.minZ - 1.6);
+    for (let i = 0; i < 140; i++) {
+      const x = officeBounds.minX + 0.9 + Math.random() * (officeBounds.maxX - officeBounds.minX - 1.8);
+      const z = officeBounds.minZ + 0.9 + Math.random() * (officeBounds.maxZ - officeBounds.minZ - 1.8);
       const candidate = new Vector3(x, 0.6, z);
       if (isPositionFree(candidate)) return candidate;
     }
@@ -367,13 +386,32 @@ export default function MovingAvatar({
     const dir = toTarget.normalize();
 
     const maxSpeed = state.status === 'idle' ? 0.42 : 0.30;
-    const stepLen = Math.min(0.028, maxSpeed * delta);
-    const step = dir.multiplyScalar(stepLen);
-    const candidate = currentPos.current.clone().add(step);
+    const stepLen = Math.min(0.026, maxSpeed * delta);
 
-    if (isPositionFree(candidate) && isPathFree(currentPos.current, candidate)) {
+    const left = new Vector3(-dir.z, 0, dir.x).normalize();
+    const dirs = [
+      dir.clone(),
+      dir.clone().add(left.clone().multiplyScalar(0.85)).normalize(),
+      dir.clone().add(left.clone().multiplyScalar(-0.85)).normalize(),
+      left.clone(),
+      left.clone().multiplyScalar(-1),
+    ];
+
+    let moved = false;
+    let step = new Vector3(0, 0, 0);
+
+    for (const d of dirs) {
+      const candidate = currentPos.current.clone().add(d.clone().multiplyScalar(stepLen));
+      if (isPositionFree(candidate) && isPathFree(currentPos.current, candidate)) {
+        step = d.clone().multiplyScalar(stepLen);
+        currentPos.current.copy(candidate);
+        moved = true;
+        break;
+      }
+    }
+
+    if (moved) {
       stuckFramesRef.current = 0;
-      currentPos.current.copy(candidate);
       groupRef.current.position.copy(currentPos.current);
       onPositionUpdate(agent.id, currentPos.current.clone());
       groupRef.current.rotation.y = Math.atan2(step.x, step.z);
@@ -382,7 +420,7 @@ export default function MovingAvatar({
       walkingRef.current = false;
       stuckFramesRef.current += 1;
 
-      // If stuck, re-route by picking a new goal.
+      // If stuck for ~1.5s, abandon route so next interval picks a new one.
       if (stuckFramesRef.current > 90) {
         stuckFramesRef.current = 0;
         routeRef.current = [];
