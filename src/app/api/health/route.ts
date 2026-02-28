@@ -33,11 +33,18 @@ async function checkUrl(url: string, timeoutMs = 5000): Promise<{ status: 'up' |
 async function checkSystemdService(name: string): Promise<ServiceCheck> {
   try {
     const unit = name.includes(".") ? name : `${name}.service`;
-    const { stdout } = await execAsync(`systemctl is-active ${unit} 2>/dev/null`);
-    const active = stdout.trim() === 'active';
-    return { name, status: active ? 'up' : 'down', details: stdout.trim() };
-  } catch {
-    return { name, status: 'down', details: 'service not found' };
+    // systemctl exits non-zero for inactive/failed units; don't treat that as "not found".
+    const { stdout } = await execAsync(`systemctl is-active ${unit} 2>/dev/null || true`);
+    const state = stdout.trim();
+    const active = state === "active";
+    const exists = state.length > 0;
+    return {
+      name,
+      status: active ? "up" : exists ? "down" : "unknown",
+      details: state || "unknown",
+    };
+  } catch (e) {
+    return { name, status: "unknown", details: e instanceof Error ? e.message : "unknown" };
   }
 }
 
