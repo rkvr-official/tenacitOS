@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { LayoutGrid, Plus, RefreshCw, Send, MessageSquare } from "lucide-react";
+import { LayoutGrid, Plus, RefreshCw, Send, MessageSquare, Download, Upload, Trash2, Pencil } from "lucide-react";
 
 interface BoardTask {
   id: string;
@@ -44,6 +44,10 @@ export default function BoardsPage() {
 
   const [newBoardName, setNewBoardName] = useState("");
   const [creatingBoard, setCreatingBoard] = useState(false);
+
+  const [renamingBoard, setRenamingBoard] = useState(false);
+  const [deletingBoard, setDeletingBoard] = useState(false);
+  const [importingBoards, setImportingBoards] = useState(false);
 
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskDesc, setNewTaskDesc] = useState("");
@@ -121,6 +125,60 @@ export default function BoardsPage() {
     loadAgents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const renameBoard = async () => {
+    if (!activeBoardId || !activeBoard) return;
+    const nextName = prompt("New board name", activeBoard.name);
+    if (!nextName) return;
+
+    setRenamingBoard(true);
+    try {
+      await fetch(`/api/boards/${activeBoardId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: nextName }),
+      });
+      await loadBoards();
+    } finally {
+      setRenamingBoard(false);
+    }
+  };
+
+  const deleteBoard = async () => {
+    if (!activeBoardId || !activeBoard) return;
+    if (!confirm(`Delete board "${activeBoard.name}"? This deletes all tasks in it.`)) return;
+
+    setDeletingBoard(true);
+    try {
+      await fetch(`/api/boards/${activeBoardId}`, { method: "DELETE" });
+      setActiveBoardId("");
+      await loadBoards();
+    } finally {
+      setDeletingBoard(false);
+    }
+  };
+
+  const exportBoards = () => {
+    window.location.href = "/api/boards/export";
+  };
+
+  const importBoards = async (file: File) => {
+    setImportingBoards(true);
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      const res = await fetch("/api/boards/import?confirm=true", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(json),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      await loadBoards();
+    } finally {
+      setImportingBoards(false);
+    }
+  };
 
   const createBoard = async () => {
     const name = newBoardName.trim();
@@ -401,6 +459,98 @@ export default function BoardsPage() {
         style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
       >
         <div className="flex flex-col md:flex-row md:items-center gap-3">
+          <div className="flex items-center gap-2 md:order-last">
+            <button
+              onClick={exportBoards}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.55rem 0.75rem",
+                borderRadius: "0.6rem",
+                border: "1px solid var(--border)",
+                backgroundColor: "rgba(42,42,42,0.35)",
+                color: "var(--text-secondary)",
+                cursor: "pointer",
+                fontSize: "13px",
+              }}
+              title="Export boards backup"
+            >
+              <Download className="w-4 h-4" /> Export
+            </button>
+
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.55rem 0.75rem",
+                borderRadius: "0.6rem",
+                border: "1px solid var(--border)",
+                backgroundColor: "rgba(42,42,42,0.35)",
+                color: "var(--text-secondary)",
+                cursor: importingBoards ? "not-allowed" : "pointer",
+                opacity: importingBoards ? 0.6 : 1,
+                fontSize: "13px",
+              }}
+              title="Import boards backup (overwrites)"
+            >
+              <Upload className="w-4 h-4" /> Import
+              <input
+                type="file"
+                accept="application/json"
+                disabled={importingBoards}
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) importBoards(f).catch(console.error);
+                  e.currentTarget.value = "";
+                }}
+              />
+            </label>
+
+            <button
+              onClick={renameBoard}
+              disabled={!activeBoard || renamingBoard}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.55rem 0.75rem",
+                borderRadius: "0.6rem",
+                border: "1px solid var(--border)",
+                backgroundColor: "rgba(42,42,42,0.35)",
+                color: "var(--text-secondary)",
+                cursor: !activeBoard || renamingBoard ? "not-allowed" : "pointer",
+                opacity: !activeBoard || renamingBoard ? 0.6 : 1,
+                fontSize: "13px",
+              }}
+              title="Rename active board"
+            >
+              <Pencil className="w-4 h-4" /> Rename
+            </button>
+
+            <button
+              onClick={deleteBoard}
+              disabled={!activeBoard || deletingBoard}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.55rem 0.75rem",
+                borderRadius: "0.6rem",
+                border: "1px solid var(--border)",
+                backgroundColor: "rgba(255, 59, 48, 0.10)",
+                color: "var(--accent)",
+                cursor: !activeBoard || deletingBoard ? "not-allowed" : "pointer",
+                opacity: !activeBoard || deletingBoard ? 0.6 : 1,
+                fontSize: "13px",
+              }}
+              title="Delete active board"
+            >
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
+          </div>
           <div className="flex-1">
             <label className="block text-xs mb-2" style={{ color: "var(--text-muted)" }}>
               Active board

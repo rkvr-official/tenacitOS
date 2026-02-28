@@ -57,14 +57,14 @@ export async function GET() {
   const checks: ServiceCheck[] = [];
 
   // Internal services
-  const [missionControl, gateway] = await Promise.all([
-    checkSystemdService('mission-control'),
+  const [tenacitos, gateway] = await Promise.all([
+    checkSystemdService('tenacitos'),
     checkSystemdService('openclaw-gateway'),
   ]);
-  checks.push({ ...missionControl, name: 'Mission Control' });
+  checks.push({ ...tenacitos, name: 'TenacitOS' });
   checks.push({ ...gateway, name: 'OpenClaw Gateway' });
 
-  // PM2 services
+  // PM2 services (optional). If pm2 isn't available, treat as informational.
   const pm2Services = ['classvault', 'content-vault', 'brain'];
   const pm2Checks = await Promise.all(pm2Services.map(checkPm2Service));
   checks.push(...pm2Checks);
@@ -92,7 +92,9 @@ export async function GET() {
 
   // Overall status
   const downCount = checks.filter((c) => c.status === 'down').length;
-  const overallStatus = downCount === 0 ? 'healthy' : downCount < checks.length / 2 ? 'degraded' : 'critical';
+  // Do not treat 'unknown' (e.g. pm2 not installed) as a failure.
+  const effectiveTotal = checks.filter((c) => c.status !== 'unknown').length || 1;
+  const overallStatus = downCount === 0 ? 'healthy' : downCount < effectiveTotal / 2 ? 'degraded' : 'critical';
 
   return NextResponse.json({
     status: overallStatus,
