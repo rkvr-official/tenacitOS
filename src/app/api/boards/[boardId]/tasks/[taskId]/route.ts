@@ -23,15 +23,31 @@ export async function PATCH(
   const { boardId, taskId } = await params;
 
   try {
+    const beforeBoard = getBoard(boardId);
+    const before = beforeBoard?.tasks.find((t) => t.id === taskId);
+
     const body = await request.json().catch(() => null);
     const patch = body && typeof body === "object" ? body : {};
 
     const task = updateTask(boardId, taskId, patch);
     if (!task) return NextResponse.json({ error: "task_not_found" }, { status: 404 });
 
-    logActivity("task", `Updated board task: ${task.title}`, "success", {
-      metadata: { boardId, taskId, patch: Object.keys(patch) },
-    });
+    const keys = Object.keys(patch);
+
+    // Emit more specific events for high-signal changes.
+    if (before?.status && patch?.status && before.status !== patch.status) {
+      logActivity("task", `Moved task: ${task.title} → ${patch.status}`, "success", {
+        metadata: { boardId, taskId, from: before.status, to: patch.status },
+      });
+    } else if (typeof patch?.position === "number") {
+      logActivity("task", `Reordered task: ${task.title}`, "success", {
+        metadata: { boardId, taskId, position: patch.position },
+      });
+    } else {
+      logActivity("task", `Updated board task: ${task.title}`, "success", {
+        metadata: { boardId, taskId, patch: keys },
+      });
+    }
 
     return NextResponse.json({ task });
   } catch (error) {

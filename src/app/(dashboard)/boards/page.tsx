@@ -70,6 +70,15 @@ export default function BoardsPage() {
 
   const [draggingTaskId, setDraggingTaskId] = useState<string>("");
 
+  const [selectedTask, setSelectedTask] = useState<BoardTask | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editPriority, setEditPriority] = useState<BoardTask["priority"]>("medium");
+  const [editAgentId, setEditAgentId] = useState("");
+  const [editTags, setEditTags] = useState("");
+  const [savingTask, setSavingTask] = useState(false);
+  const [deletingTask, setDeletingTask] = useState(false);
+
   const activeBoard = useMemo(() => boards.find((b) => b.id === activeBoardId) || null, [boards, activeBoardId]);
 
   const loadBoards = async () => {
@@ -194,6 +203,15 @@ export default function BoardsPage() {
     await updateTask(taskId, { status, position });
   };
 
+  const openTaskModal = (task: BoardTask) => {
+    setSelectedTask(task);
+    setEditTitle(task.title);
+    setEditDescription(task.description || "");
+    setEditPriority(task.priority);
+    setEditAgentId(task.agentId || "");
+    setEditTags((task.tags || []).join(", "));
+  };
+
   const openChatForTask = async (task: BoardTask) => {
     setChatOpen(true);
     setChatTaskId(task.id);
@@ -209,6 +227,44 @@ export default function BoardsPage() {
     }
 
     await loadChat(task.agentId, task.sessionId);
+  };
+
+  const saveSelectedTask = async () => {
+    if (!activeBoardId || !selectedTask) return;
+
+    setSavingTask(true);
+    try {
+      const tags = editTags
+        .split(/[,;\s]+/)
+        .map((t) => t.trim())
+        .filter(Boolean);
+
+      await updateTask(selectedTask.id, {
+        title: editTitle.trim() || selectedTask.title,
+        description: editDescription.trim() || undefined,
+        priority: editPriority,
+        agentId: editAgentId || undefined,
+        tags: tags.length ? tags : undefined,
+      });
+
+      setSelectedTask(null);
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
+  const deleteSelectedTask = async () => {
+    if (!activeBoardId || !selectedTask) return;
+    if (!confirm("Delete this task?")) return;
+
+    setDeletingTask(true);
+    try {
+      await fetch(`/api/boards/${activeBoardId}/tasks/${selectedTask.id}`, { method: "DELETE" });
+      setSelectedTask(null);
+      await loadBoards();
+    } finally {
+      setDeletingTask(false);
+    }
   };
 
   const loadChat = async (agentId: string, sessionId?: string) => {
@@ -616,6 +672,11 @@ export default function BoardsPage() {
                         // Drop onto a task → insert at this index.
                         await moveTaskWithPosition(taskId, col.id, idx);
                       }}
+                      onClick={() => {
+                        // Avoid click-open while dragging.
+                        if (draggingTaskId) return;
+                        openTaskModal(t);
+                      }}
                       className="rounded-xl p-3"
                       style={{
                         backgroundColor: "var(--card-elevated)",
@@ -709,7 +770,10 @@ export default function BoardsPage() {
                         </div>
 
                         <button
-                          onClick={() => openChatForTask(t)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openChatForTask(t);
+                          }}
                           title="Chat with agent"
                           style={{
                             display: "flex",
@@ -738,6 +802,214 @@ export default function BoardsPage() {
       ) : (
         <div className="rounded-xl p-6" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
           Create your first board to get started.
+        </div>
+      )}
+
+      {/* Task modal */}
+      {selectedTask && (
+        <div
+          onClick={() => setSelectedTask(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0,0,0,0.55)",
+            zIndex: 90,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "18px",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(720px, 100%)",
+              backgroundColor: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: "14px",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                padding: "14px 16px",
+                borderBottom: "1px solid var(--border)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "12px",
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>Task details</div>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                  {selectedTask.id}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  onClick={deleteSelectedTask}
+                  disabled={deletingTask}
+                  style={{
+                    padding: "0.45rem 0.75rem",
+                    borderRadius: "0.6rem",
+                    border: "1px solid var(--border)",
+                    backgroundColor: "rgba(255, 59, 48, 0.10)",
+                    color: "var(--accent)",
+                    cursor: deletingTask ? "not-allowed" : "pointer",
+                    opacity: deletingTask ? 0.7 : 1,
+                    fontSize: "13px",
+                  }}
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => setSelectedTask(null)}
+                  style={{
+                    padding: "0.45rem 0.75rem",
+                    borderRadius: "0.6rem",
+                    border: "1px solid var(--border)",
+                    backgroundColor: "rgba(42,42,42,0.35)",
+                    color: "var(--text-secondary)",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div style={{ padding: "14px 16px", display: "grid", gap: "10px" }}>
+              <label style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                Title
+                <input
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  style={{
+                    marginTop: "6px",
+                    width: "100%",
+                    backgroundColor: "rgba(42, 42, 42, 0.5)",
+                    color: "var(--text-secondary)",
+                    padding: "0.65rem 0.75rem",
+                    borderRadius: "0.6rem",
+                    border: "1px solid var(--border)",
+                    outline: "none",
+                  }}
+                />
+              </label>
+
+              <label style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                Description
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  rows={4}
+                  style={{
+                    marginTop: "6px",
+                    width: "100%",
+                    backgroundColor: "rgba(42, 42, 42, 0.5)",
+                    color: "var(--text-secondary)",
+                    padding: "0.65rem 0.75rem",
+                    borderRadius: "0.6rem",
+                    border: "1px solid var(--border)",
+                    outline: "none",
+                    resize: "vertical",
+                  }}
+                />
+              </label>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <label style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                  Priority
+                  <select
+                    value={editPriority}
+                    onChange={(e) => setEditPriority(e.target.value as BoardTask["priority"])}
+                    style={{
+                      marginTop: "6px",
+                      width: "100%",
+                      backgroundColor: "rgba(42, 42, 42, 0.5)",
+                      color: "var(--text-secondary)",
+                      padding: "0.65rem 0.75rem",
+                      borderRadius: "0.6rem",
+                      border: "1px solid var(--border)",
+                      outline: "none",
+                    }}
+                  >
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="critical">critical</option>
+                  </select>
+                </label>
+
+                <label style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                  Agent
+                  <select
+                    value={editAgentId}
+                    onChange={(e) => setEditAgentId(e.target.value)}
+                    style={{
+                      marginTop: "6px",
+                      width: "100%",
+                      backgroundColor: "rgba(42, 42, 42, 0.5)",
+                      color: "var(--text-secondary)",
+                      padding: "0.65rem 0.75rem",
+                      borderRadius: "0.6rem",
+                      border: "1px solid var(--border)",
+                      outline: "none",
+                    }}
+                  >
+                    <option value="">(none)</option>
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <label style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                Tags
+                <input
+                  value={editTags}
+                  onChange={(e) => setEditTags(e.target.value)}
+                  placeholder="ui, backend, urgent"
+                  style={{
+                    marginTop: "6px",
+                    width: "100%",
+                    backgroundColor: "rgba(42, 42, 42, 0.5)",
+                    color: "var(--text-secondary)",
+                    padding: "0.65rem 0.75rem",
+                    borderRadius: "0.6rem",
+                    border: "1px solid var(--border)",
+                    outline: "none",
+                  }}
+                />
+              </label>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}>
+                <button
+                  onClick={saveSelectedTask}
+                  disabled={savingTask || !editTitle.trim()}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.4rem",
+                    padding: "0.65rem 0.95rem",
+                    borderRadius: "0.65rem",
+                    border: "1px solid var(--border)",
+                    backgroundColor: "rgba(255, 59, 48, 0.15)",
+                    color: "var(--accent)",
+                    cursor: savingTask ? "not-allowed" : "pointer",
+                    opacity: savingTask ? 0.75 : 1,
+                    fontSize: "13px",
+                    fontWeight: 700,
+                  }}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
