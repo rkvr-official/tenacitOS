@@ -41,6 +41,22 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <head>
         {/* Service worker disabled: it was caching old JS bundles and causing users to see stale/crashy UIs after deploys. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(() => {
+  const IGNORE = [
+    'THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.',
+    'THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated.',
+  ];
+  const origWarn = console.warn.bind(console);
+  console.warn = (...args) => {
+    const msg = String(args?.[0] ?? '');
+    if (IGNORE.some((s) => msg.includes(s))) return;
+    origWarn(...args);
+  };
+})()`,
+          }}
+        />
       </head>
       <body 
         className={`${inter.variable} ${sora.variable} ${jetbrainsMono.variable} font-sans`}

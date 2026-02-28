@@ -29,23 +29,18 @@ export default function Office3D() {
 
   // Agent state comes from /api/office when available; fallback to deterministic mock.
   const [agentStates, setAgentStates] = useState<Record<string, AgentState>>(() => {
-    const statuses: AgentState['status'][] = ['working', 'idle', 'thinking', 'working', 'idle', 'error'];
+    // Conservative fallback: start everyone as idle so the first paint doesn't put random agents on chairs.
     return Object.fromEntries(
-      STATIC_AGENTS.map((a, idx) => [
+      STATIC_AGENTS.map((a) => [
         a.id,
         {
           id: a.id,
-          status: statuses[idx % statuses.length],
-          currentTask:
-            statuses[idx % statuses.length] === 'working'
-              ? 'Running tasks…'
-              : statuses[idx % statuses.length] === 'thinking'
-                ? 'Reasoning…'
-                : undefined,
-          model: ['opus', 'sonnet', 'haiku'][idx % 3],
-          tokensPerHour: statuses[idx % statuses.length] === 'idle' ? 0 : 5000 + idx * 1000,
-          tasksInQueue: statuses[idx % statuses.length] === 'idle' ? 0 : 1 + (idx % 3),
-          uptime: 5 + idx,
+          status: 'idle',
+          currentTask: undefined,
+          model: undefined,
+          tokensPerHour: 0,
+          tasksInQueue: 0,
+          uptime: undefined,
         } satisfies AgentState,
       ])
     );
