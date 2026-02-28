@@ -47,8 +47,9 @@ export default function MovingAvatar({
     // So chair world offset ~= z + 0.9*2 = +1.8
     const chair = new Vector3(agent.position[0], 0.6, agent.position[2] + 1.8);
 
-    // Small wander area around the working station (keeps agents near their desk)
-    const idleCenter = chair.clone().add(new Vector3(0, 0, 0.4));
+    // Standing/wandering anchor: keep agents near their desk, but NOT seated.
+    // Put them between chair and desk so they look like they're hovering around the workstation.
+    const idleCenter = new Vector3(agent.position[0], 0.6, agent.position[2] + 1.1);
 
     return { desk, chair, idleCenter };
   }, [agent.position]);
@@ -144,7 +145,7 @@ export default function MovingAvatar({
     if (state.status === 'working' || state.status === 'thinking') return;
 
     const pickTarget = () => {
-      const radius = state.status === 'idle' ? 0.6 : 0.35; // smaller, more natural local movement
+      const radius = state.status === 'idle' ? 0.95 : 0.55; // wider but still local
       const center = anchors.idleCenter;
 
       let attempts = 0;

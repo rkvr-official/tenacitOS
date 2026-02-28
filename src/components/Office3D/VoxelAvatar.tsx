@@ -53,7 +53,8 @@ export default function VoxelAvatar({
 
     // Idle breathing
     if (!isWorking && !isThinking && !isError) {
-      groupRef.current.position.y = position[1] + Math.sin(state.clock.elapsedTime) * 0.01;
+      const baseY = position[1] + (seated ? -0.12 : 0);
+      groupRef.current.position.y = baseY + Math.sin(state.clock.elapsedTime) * 0.01;
     }
   });
 
@@ -62,8 +63,10 @@ export default function VoxelAvatar({
   const shirtColor = agent.color;
   const pantsColor = '#4a5568';
 
+  const seatedOffset: [number, number, number] = seated ? [0, -0.12, -0.06] : [0, 0, 0];
+
   return (
-    <group ref={groupRef} position={position}>
+    <group ref={groupRef} position={[position[0] + seatedOffset[0], position[1] + seatedOffset[1], position[2] + seatedOffset[2]]}>
       {/* HEAD */}
       <group ref={headRef} position={[0, 0.35, 0]}>
         {/* Head cube */}
