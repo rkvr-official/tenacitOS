@@ -1,0 +1,22 @@
+[
+  {
+    "id": "example-board-1",
+    "name": "Example Board",
+    "description": "Demo board for TenacitOS boards feature",
+    "createdAt": "2026-02-28T00:00:00.000Z",
+    "updatedAt": "2026-02-28T00:00:00.000Z",
+    "tasks": [
+      {
+        "id": "example-task-1",
+        "title": "Wire Boards UI",
+        "description": "Create a kanban view for boards/tasks.",
+        "status": "backlog",
+        "priority": "high",
+        "position": 0,
+        "createdAt": "2026-02-28T00:00:00.000Z",
+        "updatedAt": "2026-02-28T00:00:00.000Z",
+        "tags": ["ui", "kanban"]
+      }
+    ]
+  }
+]
